@@ -1,0 +1,219 @@
+---
+title: "Age Concepts"
+author:
+  - name: ""
+    affiliation: ""
+    corresponding: yes
+    address: ""
+    email: ""
+
+keywords          : "keywords"
+wordcount         : "X"
+
+floatsintext      : no
+linenumbers       : yes
+draft             : no
+mask              : no
+
+figurelist        : no
+tablelist         : no
+footnotelist      : no
+
+classoption       : "man"
+output            : papaja::apa6_word
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(fig.width=8, fig.height=5, 
+               echo=FALSE, 
+               warning=FALSE, message=FALSE, 
+               cache=TRUE)
+```
+
+```{r}
+library('performance')
+library('devtools')
+library('tidyverse')
+library("purrr")
+library('ggplot2')
+library('lme4')
+library('car')
+library('emmeans')
+library('prmisc')
+library('report')
+library('readxl')
+library('dplyr')
+library('papaja')
+library('AICcmodavg')
+```
+
+```{r, analysis-preferences}
+# Seed for random number generation
+set.seed(32)
+knitr::opts_chunk$set(cache.extra = knitr::rand_seed)
+
+print_coeff <- function(model, factor, factor_label = "") {
+  coef = force_decimals(coef(summary(model))[factor, "Estimate"])
+  ci1 = force_decimals(confint.merMod(model,method="Wald")[factor, '2.5 %'])
+  ci2 = force_decimals(confint.merMod(model,method="Wald")[factor, '97.5 %'])
+  p = format_p(coef(summary(model))[factor, "Pr(>|z|)"])
+  return(paste("$\\beta$", factor_label, " = ", coef, ", ", 
+      "95% CI = [", ci1, ", ", ci2, "], ", 
+      p, sep = ""))
+}
+
+print_coeff_p <- function(model, factor, factor_label = "") {
+  return(format_p(coef(summary(model))[factor, "Pr(>|z|)"]))
+}
+
+print_model_comp <- function(model_comp, factor) {
+  df = model_comp[factor, "Df"]
+  chi = force_decimals(model_comp[factor, "Chisq"])
+  p = format_p(model_comp[factor, "Pr(>Chisq)"])
+  return(paste("$\\chi^2$(", 
+               df, ") = ", 
+               chi, ", ", 
+               p, sep = ""))
+}
+
+print_model_comp_p <- function(model_comp, factor) {
+  return(format_p(model_comp[factor, "Pr(>Chisq)"]))
+}
+
+# print out aic and bic
+print_model_fit <- function(model1, model2) {
+  aic <- aictab(cand.set = list(model1, model2), sort = F) %>%
+    pull(Delta_AICc)
+  delta_aic <- force_decimals(aic[1] - aic[2])
+  bic <- bictab(cand.set = list(model1, model2), sort = F) %>%
+    pull(Delta_BIC)
+  delta_bic <- force_decimals(bic[1] - bic[2])
+  return(paste("$\\Delta AICc$ = ", 
+               delta_aic, ", $\\Delta BIC$ = ", 
+               delta_bic, sep = ""))
+}
+```
+
+```{r, get data}
+df <- read.csv("~/AgeConcepts/Age-Concepts/Age-Concepts-Data.csv")
+df_clean <- df %>%
+  filter(Task == 'AJT')
+```
+
+```{r, data entry checks}
+length(unique(df_clean$PID))
+all(table(df_clean$PID) == 18)
+df_clean$Condition <- trimws(df_clean$Condition)
+```
+
+```{r, transforming data}
+df_clean$AJT_Accuracy <- as.numeric(df_clean$AJT_Accuracy)
+df_clean$Age_scaled <- scale(df_clean$Age)
+```
+
+```{r, base model}
+glmer1 <- glmer(AJT_Accuracy ~ Age_scaled + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+Anova(glmer1)
+```
+
+```{r, base model with identical random effect structure as following model for comparison}
+glmer1_forcomparison <- glmer(AJT_Accuracy ~ Age_scaled + (1+ Congruence|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r, augmented model with Congruence added}
+glmer2 <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + (1 + Congruence|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+Anova(glmer2)
+anova(glmer1_forcomparison, glmer2)
+```
+```{r, exploring effect of congruence}
+glmer2.congruence <- glmer2 %>% 
+  emmeans(specs = pairwise ~ Congruence,
+          type = "response") %>%
+  pluck("contrasts") %>%
+  summary()
+glmer2.congruence
+```
+
+
+```{r, glmer2 with identical random effect structure as following model for comparison}
+glmer2_forcomparison <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
+```
+```{r, augmented model with Numerical Age Condition term added}
+glmer3 <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + Condition + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
+Anova(glmer3)
+anova(glmer2_forcomparison, glmer3)
+```
+```{r, exploring the effect of condition}
+glmer3.condition <- glmer3 %>% 
+  emmeans(specs = pairwise ~ Condition,
+          type = "response") %>%
+  pluck("contrasts") %>%
+  summary()
+glmer3.condition
+```
+
+
+```{r, augmented model with Later Greater accuracy term added}
+glmer4 <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + Condition + LG_Accuracy + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
+Anova(glmer4)
+anova(glmer3, glmer4)
+```
+```{r, augmented model with Autobiographical Memory accuracy term added}
+glmer5 <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + Condition + LG_Accuracy + AMT_Accuracy + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
+Anova(glmer5)
+anova(glmer4, glmer5)
+```
+
+
+```{r, exploration of whether to model LG Accuracy differently}
+df_summary <- df_clean %>%
+  group_by(PID) %>%
+  summarise(
+    LG_Accuracy = mean(LG_Accuracy),
+    AJT_Accuracy = mean(AJT_Accuracy)
+  ) %>%
+  mutate(LG_Score = LG_Accuracy * 6)
+
+df_grouped <- df_summary %>%
+  group_by(LG_Score) %>%
+  summarise(
+    Mean_AJT = mean(AJT_Accuracy),
+    n = n()
+  )
+
+ggplot(df_grouped, aes(x = as.factor(LG_Score), y = Mean_AJT)) +
+  geom_col(fill = "steelblue") +
+  geom_text(aes(label = paste0("n = ", n)), vjust = -0.5) +
+  labs(
+    x = "Number Correct on LG Task (0–6)",
+    y = "Mean AJT Accuracy",
+    title = "AJT Accuracy by LG Task Score"
+  ) +
+  theme_minimal()
+```
+```{r, exploration of whether to model LG Accuracy as binary}
+df_clean <- df_clean %>%
+  group_by(PID) %>%
+  mutate(LG_Accuracy_Binary = ifelse(any(LG_Accuracy == 0), 0, 1)) %>%
+  ungroup()
+
+glmer4_LGbinary <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + Condition + LG_Accuracy_Binary + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
+Anova(glmer4_LGbinary)
+anova(glmer3, glmer4_LGbinary)
+```
+
+
+```{r, exploration of whether to model LG Accuracy as binary}
+compare_performance(glmer4, glmer4_LGbinary, glmer4_LGContinuous)
+```
+```{r, exploration of whether to model LG Accuracy as continuous}
+df_clean <- df_clean %>%
+  group_by(PID) %>%
+  mutate(LG_Accuracy_Continuous = sum(LG_Accuracy) / 3) %>%
+  ungroup()
+
+glmer4_LGContinuous <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + Condition + LG_Accuracy_Continuous + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
+Anova(glmer4_LGContinuous)
+anova(glmer3, glmer4_LGContinuous)
+```
+
