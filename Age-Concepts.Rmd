@@ -94,8 +94,14 @@ print_model_fit <- function(model1, model2) {
 }
 ```
 
-```{r, get data}
+```{r, get data, add age group}
 df <- read.csv("~/AgeConcepts/Age-Concepts/Age-Concepts-Data.csv")
+df <- df %>%
+  mutate(AgeGroup = case_when(
+    Age >= 3 & Age < 4   ~ '3',
+    Age >= 4 & Age < 5   ~ '4',
+    Age >= 5 & Age < 6   ~ '5'
+  ))
 df_clean <- df %>%
   filter(Task == 'AJT')
 ```
@@ -104,6 +110,9 @@ df_clean <- df %>%
 length(unique(df_clean$PID))
 all(table(df_clean$PID) == 18)
 df_clean$Condition <- trimws(df_clean$Condition)
+df_clean %>%
+  group_by(AgeGroup, Condition) %>%
+  summarise(n_unique_PID = n_distinct(PID), .groups = "drop")
 ```
 
 ```{r, transforming data}
@@ -191,6 +200,15 @@ ggplot(df_grouped, aes(x = as.factor(LG_Score), y = Mean_AJT)) +
   ) +
   theme_minimal()
 ```
+
+```{r}
+ajt_summary <- df_clean %>%
+  group_by(PID, LG_Accuracy_Binary) %>%
+  summarise(AJT_Accuracy = mean(AJT_Accuracy), .groups = "drop")
+
+t.test(AJT_Accuracy ~ LG_Accuracy_Binary, data = ajt_summary)
+```
+
 ```{r, exploration of whether to model LG Accuracy as binary}
 df_clean <- df_clean %>%
   group_by(PID) %>%
@@ -216,4 +234,20 @@ glmer4_LGContinuous <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + Condition 
 Anova(glmer4_LGContinuous)
 anova(glmer3, glmer4_LGContinuous)
 ```
+
+```{r}
+int_model <- glmer(AJT_Accuracy ~ Condition * LG_Accuracy + (1|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+Anova(int_model)
+comp_model <- glmer(AJT_Accuracy ~ Condition + LG_Accuracy + (1|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+anova(int_model, comp_model)
+```
+
+
+```{r}
+int_model_continuous <- glmer(AJT_Accuracy ~ Condition * LG_Accuracy_Continuous + (1|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+Anova(int_model_continuous)
+comp_model_continuous <- glmer(AJT_Accuracy ~ Condition + LG_Accuracy_Continuous + (1|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+anova(int_model_continuous, comp_model_continuous)
+```
+
 
