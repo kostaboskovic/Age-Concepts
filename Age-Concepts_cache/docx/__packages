@@ -20,3 +20,6 @@ report
 readxl
 tinylabels
 papaja
+performance
+AICcmodavg
+ggsignif
