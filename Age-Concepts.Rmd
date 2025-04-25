@@ -46,6 +46,10 @@ library('readxl')
 library('dplyr')
 library('papaja')
 library('AICcmodavg')
+library('modelsummary')
+library('kableExtra')
+library('broom.mixed')
+library('gt')
 ```
 
 ```{r, analysis-preferences}
@@ -182,7 +186,6 @@ glmer1_forcomparison <- glmer(AJT_Accuracy ~ Age_scaled + (1+ Congruence|PID) + 
 ```{r, augmented model with Congruence added}
 glmer2 <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + (1 + Congruence|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
 model_comp_congruence <- anova(glmer1_forcomparison, glmer2)
-model_comp_congruence
 ```
 
 
@@ -202,7 +205,7 @@ glmer2_forcomparison <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + (1 + Cong
 ```
 ```{r, augmented model with Numerical Age Condition term added}
 glmer3 <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + Condition + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
-model_comp_condition <- anova(glmer2_forcomparison, glmer3)
+summary(glmer3)
 ```
 
 ```{r, exploring the effect of condition}
@@ -754,4 +757,120 @@ ggplot(df_clean, aes(x = AgeGroup, y = AJT_Accuracy)) +
               textsize = 4) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0,1))
 ```
+```{r, GLM table summary}
+model_list <- list(
+  "Age (months)" = glmer1,
+  "Age + Size Congruence" = glmer2,
+  "Age + Congruence + Numerical Age Condition" = glmer3,
+  "Age + Congruence + Condition + Later-Greater Task Accuracy (by trial)" = glmer4,
+  "Age + Congruence + Condition + Later-Greater Task Accuracy (sum score)" = glmer4_LGContinuous,
+  "Age + Congruence + Condition + LG Accuracy (by trial) + Autobiographical Memory Task Accuracy" = glmer5
+)
+
+# Fixed effects you want to pull out
+fixed_effects <- c(
+  "Age_scaled",
+  "CongruenceIncongruent",
+  "CongruenceSame",
+  "ConditionNo Age",
+  "Condition",
+  "LG_Accuracy",
+  "AMT_Accuracy"
+)
+
+# Function to tidy each model
+extract_info <- function(model, model_name) {
+  coefs <- broom.mixed::tidy(model) %>%
+    filter(term %in% fixed_effects) %>%
+    select(term, estimate)
+
+  coefs_wide <- pivot_wider(coefs, names_from = term, values_from = estimate)
+
+  tibble(
+    Model = model_name,
+    AIC = AIC(model),
+    LogLik = as.numeric(logLik(model))  # Convert to plain numeric
+  ) %>%
+    bind_cols(coefs_wide)
+}
+
+# Apply to all models
+results_table <- bind_rows(
+  lapply(names(model_list), function(name) {
+    extract_info(model_list[[name]], name)
+  })
+)
+
+# View nicely
+print(results_table)
+```
+```{r, GLM table summary formatting}
+library(tidyr)
+
+stars.p <- function(p) {
+  if (is.na(p)) return("")  # Handle missing p-values
+  if (p < 0.001) return("***")
+  if (p < 0.01) return("**")
+  if (p < 0.05) return("*")
+  return("")
+}
+
+results_table_clean %>%
+  # Replace NA values with blank cells
+  mutate(across(starts_with("Age") | starts_with("Congruence") | starts_with("Condition") | 
+                starts_with("LG_Accuracy") | starts_with("AMT_Accuracy"), 
+                ~ replace_na(., ""))) %>%  # Replace NA with blank
+  
+  # Round the numeric coefficient statistics to two decimal places and add significance stars
+  mutate(across(
+    where(is.numeric),  # Apply to numeric columns only
+    ~ ifelse(. != "", paste0(round(., 2), " ", stars.p(tidy(glmer1)$p.value[match(cur_column(), names(tidy(glmer1)))])), ""))) %>%  # Round to 2 decimals and add stars
+
+  gt() %>%
+  fmt_number(columns = where(is.numeric), decimals = 2) %>%
+  tab_spanner(
+    label = "Model",
+    columns = Model,
+    id = "model_spanner"  # Give this spanner a unique ID
+  ) %>%
+  tab_spanner(
+    label = html("Coefficient statistics (&#946;)"),
+    columns = c(
+      `Age (months)`, `Incongruent`, `Same Size`,
+      `Condition: No Numerical Age`, `Later-Greater Task Accuracy`, `Autobiographical Memory Task Accuracy`
+    ),
+    id = "coef_spanner"  # Unique ID for coefficient spanner
+  ) %>%
+  tab_spanner(
+    label = "Summary statistics",
+    columns = c(AIC, LogLik),
+    id = "summary_spanner"  # Unique ID for summary statistics spanner
+  ) %>%
+  cols_label(
+    Model = "Model",
+    AIC = "AIC",
+    LogLik = "Log-Likelihood"
+  ) %>%
+  tab_header(
+    title = "Model Comparison Table"
+  ) %>%
+  tab_footnote(
+    footnote = "Note: Reference levels are as follows: Size Congruence = Congruent and Condition = Numerical Age Provided.",
+    locations = cells_title(groups = "title")  # Footnote associated with the title
+  ) %>%
+  tab_footnote(
+    footnote = "Significance codes: `***` p < 0.001, `**` p < 0.01, `*` p < 0.05.",
+    locations = cells_title(groups = "subtitle")  # Footnote associated with the subtitle
+  ) %>%
+  tab_options(
+    table.font.size = "small",
+    data_row.padding = px(2),
+    heading.align = "left"
+  )
+
+```
+```{r}
+tidy(glmer1)
+```
+
 
