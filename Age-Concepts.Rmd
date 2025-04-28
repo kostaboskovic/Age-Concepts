@@ -50,6 +50,7 @@ library('modelsummary')
 library('kableExtra')
 library('broom.mixed')
 library('gt')
+library('tidyr')
 ```
 
 ```{r, analysis-preferences}
@@ -206,6 +207,7 @@ glmer2_forcomparison <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + (1 + Cong
 ```{r, augmented model with Numerical Age Condition term added}
 glmer3 <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + Condition + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
 summary(glmer3)
+model_comp_condition <- anova(glmer2_forcomparison, glmer3)
 ```
 
 ```{r, exploring the effect of condition}
@@ -577,6 +579,7 @@ LG_summary_by_age_ratio <- df_LG %>%
   )
 
 ```
+
 ```{r, Later Greater figure}
 ggplot(LG_summary_by_age_ratio, aes(x = AgeGroup, y = mean_LG, fill = Ratio)) +
   geom_col(position = position_dodge(0.9), width = 0.8) +
@@ -607,9 +610,8 @@ ggplot(LG_summary_by_age_ratio, aes(x = AgeGroup, y = mean_LG, fill = Ratio)) +
     axis.line = element_line(color = "black"),
     axis.ticks = element_line(color = "black"),
     axis.title.x = element_text(margin = margin(t = 10)),
-    plot.margin = margin(t = 0, r = 10, b = 0, l = 10)  # Remove extra space at the top and bottom
+    plot.margin = margin(t = 10, r = 10, b = 0, l = 10)  # Remove extra space at the top and bottom
   )
-
 ```
 
 
@@ -662,11 +664,11 @@ The primary aim of this study was to better understand children's development of
 
 *Age Judgment Task*
 
-Children overall performed above chance (0.5) on the Age Judgment Task, *M* = `r round(AJT_mean, 2)`, *SD* = `r round(AJT_sd, 2)`, `r print_ttest(overall_AJT_ttest)`. To understand when in development children are able to make accurate age judgments and how this is influenced by access to numerical age cues, we next performed post hoc one-sample t-tests to compare the performance of children in each age group to chance in each condition and to compare performance across the numerical age conditions (see Fig. 1). We found that 3-year-old children did not differ from chance both when numerical ages were provided, *M* = `r round(age3_age_mean, 2)`, *SD* = `r round(age3_age_sd, 2)`, `r print_ttest(age3_age_condition_t_test_result)`, and not provided, *M* = `r round(age3_noage_mean, 2)`, *SD* = `r round(age3_noage_sd, 2)`, `r print_ttest(age3_noage_condition_t_test_result)`. 3-year-olds also did not differ between the numerical age conditions, `r print_ttest(age3_condition_t_test)`. On the contrary, 4-year-olds differed from chance both when numerical ages were provided, *M* = `r round(age4_age_mean, 2)`, *SD* = `r round(age4_age_sd, 2)`, `r print_ttest(age4_age_condition_t_test_result)`, and when ages were not provided, *M* = `r round(age4_noage_mean, 2)`, *SD* = `r round(age4_noage_sd, 2)`. 4-year-olds also performed better when they had access to numerical age cues than when they did not, `r print_ttest(age4_condition_t_test)`. 5-year-olds performed significantly above chance both when ages were provided, *M* = `r round(age5_age_mean, 2)`, *SD* = `r round(age5_age_sd, 2)`, `r print_ttest(age5_age_condition_t_test_result)`, and when they were not, *M* = `r round(age5_noage_mean, 2)`, *SD* = `r round(age5_noage_sd, 2)`, `r print_ttest(age5_noage_condition_t_test_result)`. 5-year-olds also performed better when given numerical ages, `r print_ttest(age5_condition_t_test)`. These data suggest that around age 4, children are able to incorporate numerical age cues to make more accurate age judgments, and by age 5. 
+Children overall performed above chance (0.5) on the Age Judgment Task, *M* = `r round(AJT_mean, 2)`, *SD* = `r round(AJT_sd, 2)`, `r print_ttest(overall_AJT_ttest)`. To understand when in development children are able to make accurate age judgments and how this is influenced by access to numerical age cues, we next performed post hoc one-sample t-tests to compare the performance of children in each age group to chance in each condition and to compare performance across the numerical age conditions (see Fig. 1). We found that 3-year-old children did not differ from chance both when numerical ages were provided, *M* = `r round(age3_age_mean, 2)`, *SD* = `r round(age3_age_sd, 2)`, `r print_ttest(age3_age_condition_t_test_result)`, and when numerical ages were not provided, *M* = `r round(age3_noage_mean, 2)`, *SD* = `r round(age3_noage_sd, 2)`, `r print_ttest(age3_noage_condition_t_test_result)`. 3-year-olds also did not differ between the numerical age conditions, `r print_ttest(age3_condition_t_test)`. On the contrary, 4-year-olds differed from chance both when numerical ages were provided, *M* = `r round(age4_age_mean, 2)`, *SD* = `r round(age4_age_sd, 2)`, `r print_ttest(age4_age_condition_t_test_result)`, and when ages were not provided, *M* = `r round(age4_noage_mean, 2)`, *SD* = `r round(age4_noage_sd, 2)`. 4-year-olds performed better when they had access to numerical age cues than when they did not, `r print_ttest(age4_condition_t_test)`. 5-year-olds performed significantly above chance both when ages were provided, *M* = `r round(age5_age_mean, 2)`, *SD* = `r round(age5_age_sd, 2)`, `r print_ttest(age5_age_condition_t_test_result)`, and when they were not, *M* = `r round(age5_noage_mean, 2)`, *SD* = `r round(age5_noage_sd, 2)`, `r print_ttest(age5_noage_condition_t_test_result)`. 5-year-olds also performed better when given numerical ages, `r print_ttest(age5_condition_t_test)`. These data suggest that around age 4, children are able to incorporate numerical age cues to make more accurate age judgments. 
 
 *Later-Greater Task*
 
-Children overall performed above chance (0.5) on the Later-Greater Task, *M* = `r round(LG_mean, 2)`, *SD* = `r round(LG_sd, 2)`, `r print_ttest(overall_LG_ttest)`. To understand when in development children are able to make accurate relative magnitude judgments for single-digit numbers, we then performed post hoc one-sample t-tests to compare performance in each age group to chance. We found that 3-year-olds, *M* = `r round(LG_mean_3, 2)`, *SD* = `r round(LG_sd_3, 2)`, `r print_ttest(age3_LG_ttest)`, 4-year-olds, *M* = `r round(LG_mean_4, 2)`, *SD* = `r round(LG_sd_4, 2)`, `r print_ttest(age4_LG_ttest)`, and 5-year-olds, *M* = `r round(LG_mean_5, 2)`, *SD* = `r round(LG_sd_5, 2)`, `r print_ttest(age5_LG_ttest)`, all performed significantly above chance (see Fig. 2).
+Children overall performed above chance (0.5) on the Later-Greater Task, *M* = `r round(LG_mean, 2)`, *SD* = `r round(LG_sd, 2)`, `r print_ttest(overall_LG_ttest)`. To understand when in development children are able to make accurate relative magnitude judgments for single-digit numbers, we then performed post hoc one-sample t-tests to compare performance in each age group to chance. We found that 3-year-olds, *M* = `r round(LG_mean_3, 2)`, *SD* = `r round(LG_sd_3, 2)`, `r print_ttest(age3_LG_ttest)`, 4-year-olds, *M* = `r round(LG_mean_4, 2)`, *SD* = `r round(LG_sd_4, 2)`, `r print_ttest(age4_LG_ttest)`, and 5-year-olds, *M* = `r round(LG_mean_5, 2)`, *SD* = `r round(LG_sd_5, 2)`, `r print_ttest(age5_LG_ttest)`, all performed significantly above chance (see Fig. 2 for by-trial data).
 
 *Autobiographical Memory Task*
 
@@ -674,9 +676,9 @@ Overall, `r round(AMT_mean * 100)`% of children succeeded on the Autobiographica
 
 *Primary Analyses*
 
-To test which factors influence children's understanding of age, we constructed several generalized linear mixed models predicting children's accuracy on the Age Judgment Task using the lme4 (Bates et al., 2015) R package. Our base model included only age (months) as a fixed effect, with participant and item as random effects. This model revealed that children's performance in the Age Judgment Task improved with age, (`r print_coeff(glmer1, "Age_scaled")`). To assess the impact of size on children's age judgments, we added a term for congruence of the size difference between figures in the Age Judgment Task (congruent/incongruent/same size) to our model. Relative to the simpler model with only age as a fixed factor, this augmented model significantly improved fit to the data (`r print_model_comp(model_comp_congruence, "glmer2")`), suggesting that children are influenced by size when making age judgments. Post hoc pairwise comparisons using the emmeans (Lenth, 2024) R Package showed that children were more accurate in the congruent condition than in both the same size (`r print_emm_contrast(glmer2.congruence, "Congruent / Same")`) and incongruent conditions (`r print_emm_contrast(glmer2.congruence, "Congruent / Incongruent")`), and also performed better in the same size condition than in the incongruent condition (`r print_emm_contrast(glmer2.congruence, "Incongruent / Same")`). Next, to assess whether having access to the numerical ages of the figures in the Age Judgment Task influenced children's performance, we added a term for numerical age condition (age provided/age not provided) to our model. This augmented model significantly improved fit to the data (`r print_model_comp(model_comp_condition, "glmer3")`), suggesting that accessing numerical age influences children's age judgments. Post hoc pairwise comparisons showed that children were more accurate when they had access to the numerical ages than when they did not (`r print_emm_contrast(glmer3.condition, "Age / No Age")`). Adding a term for accuracy on the Later-Greater Task on the trial with the same pair of numbers as the ages the figures on that trial of the Age Judgment Task were meant to represent did not significantly improve model fit (`r print_model_comp(model_comp_LG, "glmer4")`). This suggests that knowledge of which of the numbers is greater on a trial of the Age Judgment Task may not allow children to make more accurate age judgments, but there are multiple reasons to doubt this conclusion. First, knowledge of which number is greater would not have been of use for participants in the condition of the Age Judmgent Task in which numerical ages were not provided. Furthermore, participants only completed one trial in the Later-Greater Task for each pair of numbers, rendering the reliability of their accuracy for that pair of numbers low. Because of these concerns, we constructed an exploratory model which added a term for accuracy on the Later-Greater Task as a total score rather than by trial. This model did significantly improve fit to the data (`r print_model_comp(model_comp_LGcontinuous, "glmer4_LGContinuous")`), suggesting that generally, more advanced numerical knowledge may lead children to a more accurate concept of age and ability to make relative age judgments. Finally, we found that adding a term for accuracy on the Autobiographical Memory Task did not significantly improve model fit (`r print_model_comp(model_comp_AMT, "glmer5")`), suggesting that children's development of the concept of age may not be influenced by their ability to temporally order past memories.
+To test which factors influence children's understanding of age, we constructed several generalized linear mixed models predicting children's accuracy on the Age Judgment Task using the lme4 (Bates et al., 2015) R package. Our base model included only age (months) as a fixed effect, with participant and item as random effects. This model revealed that children's performance in the Age Judgment Task improved with age, (`r print_coeff(glmer1, "Age_scaled")`). To assess the impact of size on children's age judgments, we added a term for congruence of the size difference between figures in the Age Judgment Task (congruent/incongruent/same size) to our model. Relative to the simpler model with only age as a fixed factor, this augmented model significantly improved fit to the data (`r print_model_comp(model_comp_congruence, "glmer2")`), suggesting that children are influenced by size when making age judgments (see Fig. 4). Post hoc pairwise comparisons using the emmeans (Lenth, 2024) R Package showed that children were more accurate in the congruent condition than in both the same size (`r print_emm_contrast(glmer2.congruence, "Congruent / Same")`) and incongruent conditions (`r print_emm_contrast(glmer2.congruence, "Congruent / Incongruent")`), and also performed better in the same size condition than in the incongruent condition (`r print_emm_contrast(glmer2.congruence, "Incongruent / Same")`). Next, to assess whether having access to the numerical ages of the figures in the Age Judgment Task influenced children's performance, we added a term for numerical age condition (age provided/age not provided) to our model. This augmented model significantly improved fit to the data (`r print_model_comp(model_comp_condition, "glmer3")`), suggesting that accessing numerical age influences children's age judgments (Fig. 2). Post hoc pairwise comparisons showed that children were more accurate when they had access to the numerical ages than when they did not (`r print_emm_contrast(glmer3.condition, "Age / No Age")`). Adding a term for accuracy on the Later-Greater Task on the trial with the same pair of numbers as the ages the figures on that trial of the Age Judgment Task were meant to represent did not significantly improve model fit (`r print_model_comp(model_comp_LG, "glmer4")`). This suggests that knowledge of which of the numbers is greater on a trial of the Age Judgment Task may not allow children to make more accurate age judgments, but there are multiple reasons to doubt this conclusion. First, knowledge of which number is greater would not have been of use for participants in the condition of the Age Judmgent Task in which numerical ages were not provided. A subsequent interaction model addresses this. Additionally, participants only completed one trial in the Later-Greater Task for each pair of numbers, rendering the reliability of their accuracy for that pair of numbers low. Because of these concerns, we constructed an exploratory model which added a term for accuracy on the Later-Greater Task as a total score rather than by trial. This model did significantly improve fit to the data (`r print_model_comp(model_comp_LGcontinuous, "glmer4_LGContinuous")`), suggesting that, generally, more advanced numerical knowledge may lead children to a more accurate concept of age and ability to make relative age judgments. Finally, we found that adding a term for accuracy on the Autobiographical Memory Task did not significantly improve model fit (`r print_model_comp(model_comp_AMT, "glmer5")`), suggesting that children's development of the concept of age may not be influenced by their ability to temporally order past memories.
 
-We next further analyzed the influence of numerical cues on children's age judgments. First, to understand whether children's size bias is mediated by access to numerical age, we examined how size congruence and numerical age condition interacted. We found that a Congruence * Condition interaction model improved model fit (`r print_model_comp(model_comp_int_congruence_condition, "int_model_congruence_condition")`) relative to a simpler model [Accuracy ~ Congruence + Condition + (1|PID) + (1|Item)]. Post hoc pairwise comparisons showed that while there was no significant difference in accuracy between the two conditions when the size difference between the figures was congruent (`r print_emm_contrast(congruence_condition_int, "Age / No Age", filter_level = "Congruent", filter_column = "Congruence")`), children's age judgments were more accurate when they had access to numerical ages than when they did not when the size difference was incongruent (`r print_emm_contrast(congruence_condition_int, "Age / No Age", filter_level = "Incongruent", filter_column = "Congruence")`) and when the two figures were the same size (`r print_emm_contrast(congruence_condition_int, "Age / No Age", filter_level = "Same", filter_column = "Congruence")`), suggesting that although children can be misled by size in their age judgments, this effect is reduced when they are able to make use of numerical age cues. Next, we explored how numerical age condition and accuracy on the Later-Greater Task interacted to test whether number knowledge may be more predictive of performance on the Age Judgment Task when children have access to the numerical ages in making age judgments. We found that a Condition * Later-Greater Accuracy interaction model improved model fit (`r print_model_comp(model_comp_condition_LGAccuracy, "int_model_condition_LGAccuracy")`) relative to a simpler model [Accuracy ~ Condition + Later-Greater Accuracy + (1|PID) + (1|Item)]. Post hoc pairwise comparisons showed that when children have access to the numerical ages of the children in the Age Judgment Task, whether they demonstrated knowledge of which of those two numbers is greater in the Later-Greater Task significantly predicts their accuracy in judging relative age (`r print_emm_contrast(condition_LGAccuracy_int, "LG_Accuracy0 / LG_Accuracy1", filter_level = "Age", filter_column = "Condition")`). On the contrary, when children did not have access to the numerical ages in the Age Judgment Task, their accuracy was not predicted by their knowledge of which of the numbers is greater (`r print_emm_contrast(condition_LGAccuracy_int, "LG_Accuracy0 / LG_Accuracy1", filter_level = "No Age", filter_column = "Condition")`). This suggests that children are able to make more accurate age judgments when they have access to and understand numerical age cues.
+We next further analyzed the influence of numerical cues on children's age judgments. First, to understand whether children's size bias is mediated by access to numerical age, we examined how size congruence and numerical age condition interacted (Fig. 4). We found that a Congruence * Condition interaction model improved model fit (`r print_model_comp(model_comp_int_congruence_condition, "int_model_congruence_condition")`) relative to a simpler model [Accuracy ~ Congruence + Condition + (1|PID) + (1|Item)]. Post hoc pairwise comparisons showed that while there was no significant difference in accuracy between the two conditions when the size difference between the figures was congruent (`r print_emm_contrast(congruence_condition_int, "Age / No Age", filter_level = "Congruent", filter_column = "Congruence")`), children's age judgments were more accurate when they had access to numerical ages than when they did not when the size difference was incongruent (`r print_emm_contrast(congruence_condition_int, "Age / No Age", filter_level = "Incongruent", filter_column = "Congruence")`) and when the two figures were the same size (`r print_emm_contrast(congruence_condition_int, "Age / No Age", filter_level = "Same", filter_column = "Congruence")`), suggesting that although children can be misled by size in their age judgments, this effect is reduced when they are able to make use of numerical age cues. Next, we explored how numerical age condition and accuracy on the Later-Greater Task interacted to test whether number knowledge may be more predictive of performance on the Age Judgment Task when children have access to the numerical ages in making age judgments (Fig. 5). We found that a Condition * Later-Greater Accuracy interaction model improved model fit (`r print_model_comp(model_comp_condition_LGAccuracy, "int_model_condition_LGAccuracy")`) relative to a simpler model [Accuracy ~ Condition + Later-Greater Accuracy + (1|PID) + (1|Item)]. Post hoc pairwise comparisons showed that when children have access to the numerical ages of the children in the Age Judgment Task, whether they demonstrated knowledge of which of those two numbers is greater in the Later-Greater Task significantly predicts their accuracy in judging relative age (`r print_emm_contrast(condition_LGAccuracy_int, "LG_Accuracy0 / LG_Accuracy1", filter_level = "Age", filter_column = "Condition")`). On the contrary, when children did not have access to the numerical ages in the Age Judgment Task, their accuracy was not predicted by their knowledge of which of the numbers is greater (`r print_emm_contrast(condition_LGAccuracy_int, "LG_Accuracy0 / LG_Accuracy1", filter_level = "No Age", filter_column = "Condition")`). This suggests that children are able to make more accurate age judgments when they have access to and understand numerical age cues.
 
 To better understand the developmental trajectory of children's acquisition of the concept of age, we examined how age interacted with several factors that may influence children's age judgments. We first constructed a model to ask how children in three age groups (3-, 4-, and 5-year-olds) differed in their ability to make use of numerical age cues in the Age Judgment Task. We found that an Age * Condition interaction model improved model fit (`r print_model_comp(model_comp_age_condition, "int_model_age_condition")`) relative to a simpler model [Accuracy ~ Age + Condition + (1|PID) + (1|Item)]. Post hoc pairwise comparisons showed that 3-year-olds' accuracy did not differ between conditions (`r print_emm_contrast(age_condition_int, "Age / No Age", filter_level = "3", filter_column = "AgeGroup")`), whereas performance was better in the numerical age condition for both 4-year-olds (`r print_emm_contrast(age_condition_int, "Age / No Age", filter_level = "4", filter_column = "AgeGroup")`) and 5-year-olds (`r print_emm_contrast(age_condition_int, "Age / No Age", filter_level = "5", filter_column = "AgeGroup")`), suggesting that access to numerical age cues becomes useful for children in making age judgments around four years of age.
 
@@ -757,6 +759,150 @@ ggplot(df_clean, aes(x = AgeGroup, y = AJT_Accuracy)) +
               textsize = 4) +
   scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0,1))
 ```
+```{r, plot of AJT performance by congruence and condition}
+summary_df_congruence <- df_clean %>%
+  group_by(PID, Congruence, Condition) %>%
+  summarise(
+    MeanAccuracy = mean(AJT_Accuracy, .groups = "drop")
+  )
+
+wide_df <- summary_df_congruence %>%
+  pivot_wider(names_from = Condition, values_from = MeanAccuracy)
+
+test_results <- wide_df %>%
+  group_by(Congruence) %>%
+  summarise(
+    p_value = t.test(Age, `No Age`, paired = FALSE)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    y_position = case_when(
+      Congruence == "Congruent"   ~ 0.92,
+      Congruence == "Incongruent" ~ 0.92,
+      Congruence == "Same"   ~ 0.92,
+    ),
+    xmin = case_when(
+      Congruence == "Congruent"   ~ 0.8,
+      Congruence == "Incongruent" ~ 1.8,
+      Congruence == "Same"   ~ 2.8,
+    ), xmax = case_when(
+      Congruence == "Congruent"   ~ 1.2,
+      Congruence == "Incongruent" ~ 2.2,
+      Congruence == "Same"   ~ 3.2,
+    ),
+    annotation = case_when(
+      p_value < 0.001 ~ "***",
+      p_value < 0.01 ~ "**",
+      p_value < 0.05 ~ "*",
+      TRUE ~ "ns"
+  )
+)
+test_results$group = 1:nrow(test_results)
+
+ggplot(df_clean, aes(x = Congruence, y = AJT_Accuracy)) +
+  stat_summary(aes(fill = Condition), fun = mean, geom = 'bar', position = position_dodge(), alpha = 0.7, color = "black") +
+  stat_summary(aes(fill = Condition), fun.data = function(x) {
+    data.frame(y = mean(x), ymin = mean(x) - sd(x)/sqrt(length(x)), ymax = mean(x) + sd(x)/sqrt(length(x)))
+  }, geom = 'errorbar', width = 0.2, position = position_dodge(0.9)) +
+  labs(
+    x = "Congruence of Size Difference",
+    y = "Mean Accuracy",
+    fill = "Numerical Age Condition"
+  ) +
+  scale_fill_manual(
+    values = c("Age" = "lightblue", "No Age" = "white")
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+  panel.grid = element_blank(),
+  axis.line = element_line(color = "black"),
+  axis.ticks = element_line(color = "black"),
+    axis.title.x = element_text(margin = margin(t = 10))
+) +
+  geom_hline(yintercept = 0.5, linetype = 'dashed', color = 'black') +
+    geom_signif(data = test_results,
+              aes(xmin = xmin, xmax = xmax, annotations = annotation, y_position = y_position, group = group), 
+              manual = TRUE,
+              tip_length = 0.01,
+              textsize = 4) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0,1))
+```
+
+```{r}
+summary_df_LG <- df_clean %>%
+  group_by(PID, LG_Accuracy, Condition) %>%
+  summarise(
+    MeanAccuracy = mean(AJT_Accuracy, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+wide_df <- summary_df_LG %>%
+  pivot_wider(names_from = LG_Accuracy, values_from = MeanAccuracy)
+
+test_results <- wide_df %>%
+  group_by(Condition) %>%
+  summarise(
+    p_value = t.test(`0`, `1`, paired = FALSE)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    y_position = 0.9,
+    xmin = case_when(
+      Condition == "Age" ~ 0.8,
+      Condition == "No Age" ~ 1.8
+    ),
+    xmax = case_when(
+      Condition == "Age" ~ 1.2,
+      Condition == "No Age" ~ 2.2
+    ),
+    annotation = case_when(
+      p_value < 0.001 ~ "***",
+      p_value < 0.01 ~ "**",
+      p_value < 0.05 ~ "*",
+      TRUE ~ "ns"
+    )
+  )
+
+test_results$group = 1:nrow(test_results)
+
+ggplot(df_clean, aes(x = Condition, y = AJT_Accuracy)) +
+  stat_summary(aes(fill = factor(LG_Accuracy, levels = c("1", "0"))), fun = mean, geom = 'bar', position = position_dodge(), alpha = 0.7, color = "black") +
+  stat_summary(aes(fill = factor(LG_Accuracy, levels = c("1", "0"))), fun.data = function(x) {
+    data.frame(
+      y = mean(x),
+      ymin = mean(x) - sd(x)/sqrt(length(x)),
+      ymax = mean(x) + sd(x)/sqrt(length(x))
+    )
+  }, geom = 'errorbar', width = 0.2, position = position_dodge(0.9)) +
+  labs(
+    x = "Numerical Age Condition",
+    y = "Mean Accuracy",
+    fill = "Later-Greater Accuracy"
+  ) +
+  scale_fill_manual(
+    values = c("1" = "darkgreen", "0" = "darkred"),
+    labels = c("Correct", "Incorrect")
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title.x = element_text(margin = margin(t = 10))
+  ) +
+  geom_hline(yintercept = 0.5, linetype = 'dashed', color = 'black') +
+  geom_signif(
+    data = test_results,
+    aes(xmin = xmin, xmax = xmax, annotations = annotation, y_position = y_position, group = group),
+    manual = TRUE,
+    tip_length = 0.01,
+    textsize = 4
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0,1))
+
+```
+
+
 ```{r, GLM table summary}
 model_list <- list(
   "Age (months)" = glmer1,
@@ -805,69 +951,82 @@ results_table <- bind_rows(
 print(results_table)
 ```
 ```{r, GLM table summary formatting}
-library(tidyr)
-
-stars.p <- function(p) {
-  if (is.na(p)) return("")  # Handle missing p-values
-  if (p < 0.001) return("***")
-  if (p < 0.01) return("**")
-  if (p < 0.05) return("*")
-  return("")
-}
-
-results_table_clean %>%
-  # Replace NA values with blank cells
-  mutate(across(starts_with("Age") | starts_with("Congruence") | starts_with("Condition") | 
-                starts_with("LG_Accuracy") | starts_with("AMT_Accuracy"), 
-                ~ replace_na(., ""))) %>%  # Replace NA with blank
-  
-  # Round the numeric coefficient statistics to two decimal places and add significance stars
+results_table %>%
+  # FIRST, convert relevant columns to character so we can safely replace NA with ""
   mutate(across(
-    where(is.numeric),  # Apply to numeric columns only
-    ~ ifelse(. != "", paste0(round(., 2), " ", stars.p(tidy(glmer1)$p.value[match(cur_column(), names(tidy(glmer1)))])), ""))) %>%  # Round to 2 decimals and add stars
+    starts_with("Age") | starts_with("Incongruent") | starts_with("Same Size") |
+    starts_with("Condition") | starts_with("Later-Greater") | starts_with("Autobiographical"),
+    as.character
+  )) %>%
+  
+  # THEN replace NA values with blank cells
+  mutate(across(
+    starts_with("Age") | starts_with("Incongruent") | starts_with("Same Size") |
+    starts_with("Condition") | starts_with("Later-Greater") | starts_with("Autobiographical"),
+    ~ replace_na(., "")
+  )) %>%
 
+  # THEN apply rounding without significance stars
+  mutate(across(
+    c(Age_scaled, CongruenceIncongruent, CongruenceSame,
+      `ConditionNo Age`, LG_Accuracy, AMT_Accuracy),
+    ~ ifelse(. != "", round(as.numeric(.), 2), "")
+  )) %>%
+
+  # Now make the table
   gt() %>%
-  fmt_number(columns = where(is.numeric), decimals = 2) %>%
+  
+  # First, group the original columns
   tab_spanner(
     label = "Model",
     columns = Model,
-    id = "model_spanner"  # Give this spanner a unique ID
+    id = "model_spanner"
   ) %>%
   tab_spanner(
     label = html("Coefficient statistics (&#946;)"),
     columns = c(
-      `Age (months)`, `Incongruent`, `Same Size`,
-      `Condition: No Numerical Age`, `Later-Greater Task Accuracy`, `Autobiographical Memory Task Accuracy`
+      Age_scaled, CongruenceIncongruent, CongruenceSame,
+      `ConditionNo Age`, LG_Accuracy, AMT_Accuracy
     ),
-    id = "coef_spanner"  # Unique ID for coefficient spanner
+    id = "coef_spanner"
   ) %>%
   tab_spanner(
     label = "Summary statistics",
     columns = c(AIC, LogLik),
-    id = "summary_spanner"  # Unique ID for summary statistics spanner
+    id = "summary_spanner"
   ) %>%
+  
+  # THEN rename the columns for display
   cols_label(
-    Model = "Model",
+    Model = "",
+    Age_scaled = "Age (months)",
+    CongruenceIncongruent = "Incongruent",
+    CongruenceSame = "Same Size",
+    `ConditionNo Age` = "Condition: No Numerical Age",
+    LG_Accuracy = "Later-Greater Task Accuracy",
+    AMT_Accuracy = "Autobiographical Memory Task Accuracy",
     AIC = "AIC",
     LogLik = "Log-Likelihood"
   ) %>%
+  
+  # Remove the title
   tab_header(
-    title = "Model Comparison Table"
+    title = NULL
+  ) %>%
+  
+  # Remove footnote numbering by just applying the footnotes without specifying locations
+  tab_footnote(
+    footnote = "Note: Reference levels are as follows: Size Difference = Congruent and Condition = Numerical Age Provided."
   ) %>%
   tab_footnote(
-    footnote = "Note: Reference levels are as follows: Size Congruence = Congruent and Condition = Numerical Age Provided.",
-    locations = cells_title(groups = "title")  # Footnote associated with the title
+    footnote = "Significance codes: `***` p < 0.001, `**` p < 0.01, `*` p < 0.05."
   ) %>%
-  tab_footnote(
-    footnote = "Significance codes: `***` p < 0.001, `**` p < 0.01, `*` p < 0.05.",
-    locations = cells_title(groups = "subtitle")  # Footnote associated with the subtitle
-  ) %>%
+  
   tab_options(
     table.font.size = "small",
     data_row.padding = px(2),
     heading.align = "left"
   )
-
 ```
 ```{r}
 tidy(glmer1)
