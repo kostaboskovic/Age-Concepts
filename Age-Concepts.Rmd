@@ -127,6 +127,14 @@ print_emm_contrast <- function(contrast_df, contrast_label, filter_level = NULL,
   with(row, sprintf("Odds ratio = %.2f, SE = %.2f, z = %.2f, %s",
                     odds.ratio, SE, z.ratio, format_p(p.value)))
 }
+
+print_ttest <- function(t_result) {
+  t_val <- sprintf("%.2f", t_result$statistic)
+  df <- round(t_result$parameter)
+  p <- format_p(t_result$p.value)
+
+  return(paste0("$t$(", df, ") = ", t_val, ", ", p))
+}
 ```
 
 ```{r, get data, add age group}
@@ -950,7 +958,7 @@ results_table <- bind_rows(
 # View nicely
 print(results_table)
 ```
-```{r, GLM table summary formatting}
+```{r GLM table summary formatting, fig.width = 5}
 results_table %>%
   # FIRST, convert relevant columns to character so we can safely replace NA with ""
   mutate(across(
