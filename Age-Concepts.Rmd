@@ -875,6 +875,66 @@ plot2
 ```
 
 ```{r}
+noagesamesize_df <- df_clean %>%
+  filter(Condition == "No Age", Congruence == "Same") %>%
+  group_by(AgeGroup) %>%
+  summarise(
+    MeanAccuracy = mean(AJT_Accuracy, na.rm = TRUE),
+    SE = sd(AJT_Accuracy, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+test_results_noagesamesize <- df_clean %>%
+  filter(Condition == "No Age", Congruence == "Same") %>%
+  group_by(AgeGroup) %>%
+  summarise(
+    p_value = t.test(AJT_Accuracy, mu = 0.5)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    annotation = case_when(
+      p_value < 0.001 ~ "***",
+      p_value < 0.01 ~ "**",
+      p_value < 0.05 ~ "*",
+      TRUE ~ "ns"
+    ),
+    y_position = 0.95,  # adjust as needed
+    xmin = as.numeric(as.factor(AgeGroup)) - 0.2,
+    xmax = as.numeric(as.factor(AgeGroup)) + 0.2,
+    group = AgeGroup
+  )
+
+noagesamesizeplot <- ggplot(noagesamesize_df, aes(x = AgeGroup, y = MeanAccuracy)) +
+  geom_bar(stat = "identity", fill = "gray70", color = "black", width = 0.6) +
+  geom_errorbar(aes(ymin = MeanAccuracy - SE, ymax = MeanAccuracy + SE), width = 0.2) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "black") +
+  geom_signif(
+    data = test_results,
+    aes(xmin = xmin, xmax = xmax, annotations = annotation, y_position = y_position, group = group),
+    manual = TRUE,
+    tip_length = 0.01,
+    textsize = 4
+  ) +
+  labs(
+    x = "Age Group (Years)",
+    y = "Mean AJT Accuracy",
+    title = "AJT Performance for 'No Age' / 'Same' Congruence Trials"
+  ) +
+  theme_minimal(base_size = 14) +
+  scale_y_continuous(limits = c(0, 1), expand = expansion(mult = c(0, 0.05))) +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black")
+  )
+
+ggsave("noagesamesizeplot.png", plot = noagesamesizeplot, width = 8, height = 5, dpi = 300)
+
+noagesamesizeplot
+```
+
+
+```{r}
 summary_df_LG <- df_clean %>%
   group_by(PID, LG_Accuracy, Condition) %>%
   summarise(
@@ -888,7 +948,7 @@ wide_df <- summary_df_LG %>%
 test_results <- wide_df %>%
   group_by(Condition) %>%
   summarise(
-    p_value = t.test(`0`, `1`, paired = FALSE)$p.value,
+    p_value = t.test(`0`, `1`, paired = TRUE)$p.value,
     .groups = "drop"
   ) %>%
   mutate(
@@ -1100,4 +1160,42 @@ results_table %>%
 tidy(glmer1)
 ```
 
+
+```{r}
+summary_df <- df_clean %>%
+  group_by(Ratio, Condition) %>%
+  summarise(
+    MeanAccuracy = mean(AJT_Accuracy, na.rm = TRUE),
+    SE = sd(AJT_Accuracy, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+ggplot(summary_df, aes(x = factor(Ratio), y = MeanAccuracy, fill = Condition)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), color = "black", alpha = 0.7) +
+  geom_errorbar(
+    aes(ymin = MeanAccuracy - SE, ymax = MeanAccuracy + SE),
+    position = position_dodge(width = 0.9),
+    width = 0.2
+  ) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "black") +
+  scale_fill_manual(
+    values = c("Age" = "lightblue", "No Age" = "white"),
+    labels = c("Age Provided", "No Age Provided")
+  ) +
+  labs(
+    x = "Age Ratio (Younger/Older)",
+    y = "Mean AJT Accuracy",
+    fill = "Condition"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title.x = element_text(margin = margin(t = 10))
+  ) +
+  scale_y_continuous(limits = c(0, 1), expand = expansion(mult = c(0, 0.05)))
+
+#note to self: fixed the 1 3 vs 7 in the no age condition which had an extra white space, doesn't affect anything else but this ratio analysis so only need to import the data again if decide to report any ratio analysis
+```
 
