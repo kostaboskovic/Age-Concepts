@@ -781,11 +781,16 @@ plot1 <- ggplot(df_clean, aes(x = AgeGroup, y = AJT_Accuracy)) +
   ) +
   theme_minimal(base_size = 14) +
   theme(
-  panel.grid = element_blank(),
-  axis.line = element_line(color = "black"),
-  axis.ticks = element_line(color = "black"),
-    axis.title.x = element_text(margin = margin(t = 10))
-) +
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title.x = element_text(size = 17, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 17),
+    axis.text.x  = element_text(size = 15),
+    axis.text.y  = element_text(size = 15),
+    legend.title = element_text(size = 15),
+    legend.text  = element_text(size = 13)
+  ) +
   geom_hline(yintercept = 0.5, linetype = 'dashed', color = 'black') +
     geom_signif(data = test_results,
               aes(xmin = xmin, xmax = xmax, annotations = annotation, y_position = y_position, group = group), 
@@ -856,11 +861,16 @@ plot2 <- ggplot(df_clean, aes(x = Congruence, y = AJT_Accuracy)) +
   scale_x_discrete(labels = c("Same" = "Same Size")) +
   theme_minimal(base_size = 14) +
   theme(
-  panel.grid = element_blank(),
-  axis.line = element_line(color = "black"),
-  axis.ticks = element_line(color = "black"),
-    axis.title.x = element_text(margin = margin(t = 10))
-) +
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title.x = element_text(size = 17, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 17),
+    axis.text.x  = element_text(size = 15),
+    axis.text.y  = element_text(size = 15),
+    legend.title = element_text(size = 15),
+    legend.text  = element_text(size = 13)
+  ) +
   geom_hline(yintercept = 0.5, linetype = 'dashed', color = 'black') +
     geom_signif(data = test_results,
               aes(xmin = xmin, xmax = xmax, annotations = annotation, y_position = y_position, group = group), 
@@ -909,7 +919,7 @@ noagesamesizeplot <- ggplot(noagesamesize_df, aes(x = AgeGroup, y = MeanAccuracy
   geom_errorbar(aes(ymin = MeanAccuracy - SE, ymax = MeanAccuracy + SE), width = 0.2) +
   geom_hline(yintercept = 0.5, linetype = "dashed", color = "black") +
   geom_signif(
-    data = test_results,
+    data = test_results_noagesamesize,
     aes(xmin = xmin, xmax = xmax, annotations = annotation, y_position = y_position, group = group),
     manual = TRUE,
     tip_length = 0.01,
@@ -917,8 +927,7 @@ noagesamesizeplot <- ggplot(noagesamesize_df, aes(x = AgeGroup, y = MeanAccuracy
   ) +
   labs(
     x = "Age Group (Years)",
-    y = "Mean AJT Accuracy",
-    title = "AJT Performance for 'No Age' / 'Same' Congruence Trials"
+    y = "Mean AJT Accuracy"
   ) +
   theme_minimal(base_size = 14) +
   scale_y_continuous(limits = c(0, 1), expand = expansion(mult = c(0, 0.05))) +
@@ -1195,7 +1204,11 @@ ggplot(summary_df, aes(x = factor(Ratio), y = MeanAccuracy, fill = Condition)) +
     axis.title.x = element_text(margin = margin(t = 10))
   ) +
   scale_y_continuous(limits = c(0, 1), expand = expansion(mult = c(0, 0.05)))
-
-#note to self: fixed the 1 3 vs 7 in the no age condition which had an extra white space, doesn't affect anything else but this ratio analysis so only need to import the data again if decide to report any ratio analysis
 ```
+```{r}
+df_filtered <- df_clean %>%
+  filter(Condition == "No Age", Ratio %in% c("3 vs 5", "3 vs 9"))
+t.test(AJT_Accuracy ~ Ratio, data = df_filtered)
+```
+
 
