@@ -533,25 +533,7 @@ age4_noage_condition_t_test_result
 age5_age_condition_t_test_result
 age5_noage_condition_t_test_result
 ```
-```{r, Age Judgment Task t tests between conditions}
-age3_df <- AJT_summary_condition %>%
-  filter(AgeGroup == 3)
 
-age3_condition_t_test <- t.test(mean_AJT ~ Condition, data = age3_df)
-
-age4_df <- AJT_summary_condition %>%
-  filter(AgeGroup == 4)
-
-age4_condition_t_test <- t.test(mean_AJT ~ Condition, data = age4_df)
-
-age5_df <- AJT_summary_condition %>%
-  filter(AgeGroup == 5)
-age5_condition_t_test <- t.test(mean_AJT ~ Condition, data = age5_df)
-
-age3_condition_t_test
-age4_condition_t_test
-age5_condition_t_test
-```
 ```{r, Later Greater Task descriptives}
 df_LG <- df %>%
   filter(Task == 'LG')
@@ -803,6 +785,119 @@ ggsave("plot1.png", plot = plot1, width = 8, height = 5, dpi = 300)
 
 plot1
 ```
+
+```{r}
+# example of how to use regressions to generate significance markers in plots
+
+model <- glmer(AJT_Accuracy ~ Condition * AgeGroup + (1 | PID) + (1 | Item), 
+               data = df_clean, 
+               family = 'binomial',
+               control = glmerControl(optimizer = "bobyqa"))
+
+# Get estimated marginal means and contrasts
+em <- emmeans(model, ~ Condition | AgeGroup)
+contrast_results <- pairs(em, adjust = "none")  # Change adjust method if needed
+
+# Prepare data for significance markers
+contrast_df <- as.data.frame(contrast_results)
+
+contrast_df <- contrast_df %>%
+  mutate(
+    annotation = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*",
+      TRUE ~ "ns"
+    ),
+    y_position = case_when(
+      AgeGroup == "3" ~ 0.66,
+      AgeGroup == "4" ~ 0.85,
+      AgeGroup == "5" ~ 1.00
+    ),
+    xmin = case_when(
+      AgeGroup == "3" ~ 0.8,
+      AgeGroup == "4" ~ 1.8,
+      AgeGroup == "5" ~ 2.8
+    ),
+    xmax = case_when(
+      AgeGroup == "3" ~ 1.2,
+      AgeGroup == "4" ~ 2.2,
+      AgeGroup == "5" ~ 3.2
+    ),
+    group = row_number()
+  )
+
+# Plot
+ggplot(df_clean, aes(x = AgeGroup, y = AJT_Accuracy)) +
+  stat_summary(aes(fill = Condition), fun = mean, geom = 'bar', 
+               position = position_dodge(), alpha = 0.7, color = "black") +
+  stat_summary(aes(fill = Condition), fun.data = function(x) {
+    data.frame(y = mean(x), 
+               ymin = mean(x) - sd(x)/sqrt(length(x)), 
+               ymax = mean(x) + sd(x)/sqrt(length(x)))
+  }, geom = 'errorbar', width = 0.2, position = position_dodge(0.9)) +
+  labs(
+    x = "Age Group (Years)",
+    y = "Mean Accuracy",
+    fill = "Numerical Age Condition"
+  ) +
+  scale_fill_manual(
+    values = c("Age" = "lightblue", "No Age" = "white"),
+    labels = c("Age" = "Age Provided", "No Age" = "No Age Provided")
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title.x = element_text(size = 17, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 17),
+    axis.text.x  = element_text(size = 15),
+    axis.text.y  = element_text(size = 15),
+    legend.title = element_text(size = 15),
+    legend.text  = element_text(size = 13)
+  ) +
+  geom_hline(yintercept = 0.5, linetype = 'dashed', color = 'black') +
+  geom_signif(data = contrast_df,
+              aes(xmin = xmin, xmax = xmax, annotations = annotation, 
+                  y_position = y_position, group = group), 
+              manual = TRUE,
+              tip_length = 0.01,
+              textsize = 4) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0,1))
+```
+```{r}
+# example of how to use regression to conduct t test to chance
+
+df_sub <- df_clean %>%
+  filter(AgeGroup == "3", Condition == "Age")
+
+# Fit logistic regression: intercept-only model
+model_3yo_age <- glmer(AJT_Accuracy ~ 1 + (1 | PID) + (1 | Item), 
+                       data = df_sub, 
+                       family = 'binomial',
+                       control = glmerControl(optimizer = "bobyqa"))
+
+# Summary of the model
+summary(model_3yo_age)
+```
+```{r}
+#example of how to use regression to conduct comparison between conditions- but do I use the previous model or this one to compare 3s in Age to chance?
+
+df_3yo <- df_clean %>%
+  filter(AgeGroup == "3")
+
+# Fit logistic regression: Condition as predictor
+model_3yo_cond <- glmer(AJT_Accuracy ~ Condition + (1 | PID) + (1 | Item),
+                        data = df_3yo,
+                        family = 'binomial',
+                        control = glmerControl(optimizer = "bobyqa"))
+
+# Model summary
+summary(model_3yo_cond)
+```
+
+
 
 ```{r, plot of AJT performance by congruence and condition}
 summary_df_congruence <- df_clean %>%
@@ -1211,4 +1306,14 @@ df_filtered <- df_clean %>%
 t.test(AJT_Accuracy ~ Ratio, data = df_filtered)
 ```
 
+```{r}
+# correct way to do t test
+agg_age_3yo <- df_clean %>%
+  filter(AgeGroup == "3", Condition == "Age") %>%
+  group_by(PID) %>%
+  summarise(prop_correct = mean(AJT_Accuracy), .groups = "drop")
+
+# Step 2: One-sample t-test against chance (0.5)
+t.test(agg_age_3yo$prop_correct, mu = 0.5)
+```
 
