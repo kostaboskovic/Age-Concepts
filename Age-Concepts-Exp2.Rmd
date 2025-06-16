@@ -1,0 +1,69 @@
+---
+title: "AgeConcepts-Exp2"
+output: html_document
+date: "2025-06-16"
+---
+```{r}
+library('performance')
+library('devtools')
+library('tidyverse')
+library("purrr")
+library('ggplot2')
+library('ggsignif')
+library('lme4')
+library('car')
+library('emmeans')
+library('prmisc')
+library('report')
+library('readxl')
+library('dplyr')
+library('papaja')
+library('AICcmodavg')
+library('modelsummary')
+library('kableExtra')
+library('broom.mixed')
+library('gt')
+library('tidyr')
+library('apaTables')
+library('flextable')
+```
+
+```{r}
+df <- read.csv("C:\\Users\\Owner\\Downloads\\Age Concepts Exp 2 pilot data - Data.csv")
+df_clean <- df %>%
+  filter(Task == "AJT")
+```
+
+```{r}
+df_clean$AJT_Accuracy <- as.numeric(df_clean$AJT_Accuracy)
+```
+
+```{r, base model}
+glmer1 <- glmer(AJT_Accuracy ~ Age + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+summary(glmer1)
+```
+```{r, base model with identical random effect structure as following model for comparison}
+glmer1_comparison <- glmer(AJT_Accuracy ~ Age + (1 + Congruence|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+```
+```{r, augmented model with Congruence added}
+glmer2 <- glmer(AJT_Accuracy ~ Age + Congruence + (1 + Congruence|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+anova(glmer1_comparison, glmer2)
+```
+```{r, glmer2 with identical random effect structure as following model for comparison}
+glmer2_comparison <- glmer(AJT_Accuracy ~ Age + Congruence + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+```
+```{r}
+glmer3 <- glmer(AJT_Accuracy ~ Age + Congruence + Condition + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+summary(glmer3)
+anova(glmer2_comparison, glmer3)
+```
+```{r}
+congruence_condition_int <- glmer(AJT_Accuracy ~ Congruence * Condition + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+summary(congruence_condition_int)
+```
+
+
+
+
+
+
