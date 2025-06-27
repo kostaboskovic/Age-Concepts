@@ -1,0 +1,1259 @@
+---
+title: "Age Concepts"
+author:
+  - name: ""
+    affiliation: ""
+    corresponding: yes
+    address: ""
+    email: ""
+
+keywords          : "keywords"
+wordcount         : "X"
+
+floatsintext      : no
+linenumbers       : yes
+draft             : no
+mask              : no
+
+figurelist        : no
+tablelist         : no
+footnotelist      : no
+
+classoption       : "man"
+output            : papaja::apa6_word
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(fig.width=8, fig.height=5, 
+               echo=FALSE, 
+               warning=FALSE, message=FALSE, 
+               cache=TRUE)
+```
+
+```{r}
+library('performance')
+library('devtools')
+library('tidyverse')
+library("purrr")
+library('ggplot2')
+library('ggsignif')
+library('lme4')
+library('car')
+library('emmeans')
+library('prmisc')
+library('report')
+library('readxl')
+library('dplyr')
+library('papaja')
+library('AICcmodavg')
+library('modelsummary')
+library('kableExtra')
+library('broom.mixed')
+library('gt')
+library('tidyr')
+library('apaTables')
+library('flextable')
+```
+
+```{r, analysis-preferences}
+# Seed for random number generation
+set.seed(32)
+knitr::opts_chunk$set(cache.extra = knitr::rand_seed)
+
+force_decimals <- function(x, digits = 2) {
+  formatC(x, format = "f", digits = digits)
+}
+
+print_coeff <- function(model, factor, factor_label = "") {
+  coef = force_decimals(coef(summary(model))[factor, "Estimate"])
+  ci1 = force_decimals(confint(model,method="Wald")[factor, '2.5 %'])
+  ci2 = force_decimals(confint(model,method="Wald")[factor, '97.5 %'])
+  p = format_p(coef(summary(model))[factor, "Pr(>|z|)"])
+  return(paste("$\\beta$", factor_label, " = ", coef, ", ", 
+      "95% CI = [", ci1, ", ", ci2, "], ", 
+      p, sep = ""))
+}
+
+print_coeff_p <- function(model, factor, factor_label = "") {
+  return(format_p(coef(summary(model))[factor, "Pr(>|z|)"]))
+}
+
+print_model_comp <- function(model_comp, factor) {
+  df = model_comp[factor, "Df"]
+  chi = force_decimals(model_comp[factor, "Chisq"])
+  p = format_p(model_comp[factor, "Pr(>Chisq)"])
+  return(paste("$\\chi^2$(", 
+               df, ") = ", 
+               chi, ", ", 
+               p, sep = ""))
+}
+
+print_model_comp_p <- function(model_comp, factor) {
+  return(format_p(model_comp[factor, "Pr(>Chisq)"]))
+}
+
+# print out aic and bic
+print_model_fit <- function(model1, model2) {
+  aic <- aictab(cand.set = list(model1, model2), sort = F) %>%
+    pull(Delta_AICc)
+  delta_aic <- force_decimals(aic[1] - aic[2])
+  bic <- bictab(cand.set = list(model1, model2), sort = F) %>%
+    pull(Delta_BIC)
+  delta_bic <- force_decimals(bic[1] - bic[2])
+  return(paste("$\\Delta AICc$ = ", 
+               delta_aic, ", $\\Delta BIC$ = ", 
+               delta_bic, sep = ""))
+}
+
+print_emm_contrast <- function(contrast_df, contrast_label, filter_level = NULL, filter_column = NULL, digits = 2) {
+  
+  # Apply filtering if both filter_column and filter_level are provided
+  if (!is.null(filter_level) && !is.null(filter_column)) {
+    contrast_df <- contrast_df %>%
+      filter(grepl(filter_level, .[[filter_column]], fixed = TRUE))
+  }
+
+  if (nrow(contrast_df) == 0) {
+    return("N/A")
+  }
+
+  # Filter for the contrast label and keep only the first matching row
+  row <- contrast_df %>%
+    filter(contrast == contrast_label) %>%
+    slice(1)
+
+  if (nrow(row) == 0) {
+    return("N/A")
+  }
+
+  with(row, sprintf("Odds ratio = %.2f, SE = %.2f, z = %.2f, %s",
+                    odds.ratio, SE, z.ratio, format_p(p.value)))
+}
+
+print_ttest <- function(t_result) {
+  t_val <- sprintf("%.2f", t_result$statistic)
+  df <- round(t_result$parameter)
+  p <- format_p(t_result$p.value)
+
+  return(paste0("$t$(", df, ") = ", t_val, ", ", p))
+}
+```
+
+```{r, get data, add age group}
+df <- read.csv("~/AgeConcepts/Age-Concepts/Age-Concepts-Data.csv")
+df <- df %>%
+  mutate(AgeGroup = case_when(
+    Age >= 3 & Age < 4   ~ '3',
+    Age >= 4 & Age < 5   ~ '4',
+    Age >= 5 & Age < 6   ~ '5'
+  ))
+df_clean$AgeGroup <- factor(df_clean$AgeGroup, levels = c(3, 4, 5))
+df_clean <- df %>%
+  filter(Task == 'AJT')
+```
+
+```{r, data entry checks}
+length(unique(df_clean$PID))
+all(table(df_clean$PID) == 18)
+df_clean$Condition <- trimws(df_clean$Condition)
+df_clean %>%
+  group_by(AgeGroup, Condition) %>%
+  summarise(
+    n_unique_PID = n_distinct(PID),
+    mean_age = mean(Age, na.rm = TRUE),
+    .groups = "drop"
+  )
+# df_clean %>%
+#  group_by(Condition) %>%
+#  summarise(mean_age = mean(Age, na.rm = TRUE))
+```
+
+```{r, transforming data}
+df_clean$AJT_Accuracy <- as.numeric(df_clean$AJT_Accuracy)
+df_clean$Age_scaled <- scale(df_clean$Age)
+```
+
+```{r}
+library(dplyr)
+
+# Step 1: Compute participant-level means
+participant_means <- df_clean %>%
+  group_by(PID) %>%
+  summarise(
+    mean_AJT = mean(AJT_Accuracy, na.rm = TRUE),
+    mean_LG  = mean(LG_Accuracy, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Step 2: Compute correlation
+cor.test(participant_means$mean_AJT, participant_means$mean_LG)
+
+```
+
+
+```{r, demographics}
+mean_age <- mean(df$Age)
+sd_age <- sd(df$Age)
+mean_age
+sd_age
+range(df$Age)
+df %>%
+  group_by(PID, Gender) %>%
+  summarise(.groups = "drop") %>%
+  count(Gender)
+```
+
+
+```{r, base model}
+glmer1 <- glmer(AJT_Accuracy ~ Age_scaled + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+Anova(glmer1)
+```
+
+```{r, base model with identical random effect structure as following model for comparison}
+glmer1_forcomparison <- glmer(AJT_Accuracy ~ Age_scaled + (1+ Congruence|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r, augmented model with Congruence added}
+glmer2 <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + (1 + Congruence|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+model_comp_congruence <- anova(glmer1_forcomparison, glmer2)
+```
+
+
+```{r, exploring effect of congruence}
+glmer2.congruence <- glmer2 %>% 
+  emmeans(specs = pairwise ~ Congruence,
+          type = "response",
+          adjust = "bonferroni") %>%
+  pluck("contrasts") %>%
+  summary()
+glmer2.congruence
+```
+
+
+```{r, glmer2 with identical random effect structure as following model for comparison}
+glmer2_forcomparison <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
+```
+
+```{r, augmented model with Numerical Age Condition term added}
+glmer3 <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + Condition + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
+summary(glmer3)
+model_comp_condition <- anova(glmer2_forcomparison, glmer3)
+```
+
+```{r, exploring the effect of condition}
+glmer3.condition <- glmer3 %>% 
+  emmeans(specs = pairwise ~ Condition,
+          type = "response",
+          adjust = "bonferroni") %>%
+  pluck("contrasts") %>%
+  summary()
+glmer3.condition
+```
+
+
+```{r, augmented model with Later Greater accuracy term added}
+glmer4 <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + Condition + LG_Accuracy + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
+model_comp_LG <- anova(glmer3, glmer4)
+```
+
+```{r, augmented model with Autobiographical Memory accuracy term added}
+glmer5 <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + Condition + LG_Accuracy + AMT_Accuracy + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
+summary(glmer5)
+model_comp_AMT <- anova(glmer4, glmer5)
+```
+
+
+```{r, exploration of whether to model LG Accuracy differently}
+df_summary <- df_clean %>%
+  group_by(PID) %>%
+  summarise(
+    LG_Accuracy = mean(LG_Accuracy),
+    AJT_Accuracy = mean(AJT_Accuracy)
+  ) %>%
+  mutate(LG_Score = LG_Accuracy * 6)
+
+df_grouped <- df_summary %>%
+  group_by(LG_Score) %>%
+  summarise(
+    Mean_AJT = mean(AJT_Accuracy),
+    n = n()
+  )
+
+# ggplot(df_grouped, aes(x = as.factor(LG_Score), y = Mean_AJT)) +
+ # geom_col(fill = "steelblue") +
+ # geom_text(aes(label = paste0("n = ", n)), vjust = -0.5) +
+ # labs(
+ #   x = "Number Correct on LG Task (0–6)",
+ #   y = "Mean AJT Accuracy",
+ #   title = "AJT Accuracy by LG Task Score"
+ # ) +
+  #theme_minimal()
+```
+
+```{r}
+df_clean <- df_clean %>%
+  group_by(PID) %>%
+  mutate(LG_Accuracy_Binary = ifelse(any(LG_Accuracy == 0), 0, 1)) %>%
+  ungroup()
+
+ajt_summary <- df_clean %>%
+  group_by(PID, LG_Accuracy_Binary) %>%
+  summarise(AJT_Accuracy = mean(AJT_Accuracy), .groups = "drop")
+
+# t.test(AJT_Accuracy ~ LG_Accuracy_Binary, data = ajt_summary)
+```
+
+```{r, exploration of whether to model LG Accuracy as binary}
+glmer4_LGbinary <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + Condition + LG_Accuracy_Binary + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
+model_comp_LGbinary <- anova(glmer3, glmer4_LGbinary)
+```
+
+
+```{r, exploration of whether to model LG Accuracy as continuous}
+df_clean <- df_clean %>%
+  group_by(PID) %>%
+  mutate(LG_Accuracy_Continuous = sum(LG_Accuracy) / 3) %>%
+  ungroup()
+
+glmer4_LGContinuous <- glmer(AJT_Accuracy ~ Age_scaled + Congruence + Condition + LG_Accuracy_Continuous + (1 + Congruence|PID) + (1 + Condition|Item), data = df_clean, family = 'binomial',  control = glmerControl(optimizer = "bobyqa"))
+summary(glmer4_LGContinuous)
+model_comp_LGcontinuous <- anova(glmer3, glmer4_LGContinuous)
+```
+
+```{r, interaction between congruence and condition}
+int_model_congruence_condition <- glmer(AJT_Accuracy ~ Condition * Congruence + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+comp_model_congruence_condition <- glmer(AJT_Accuracy ~ Condition + Congruence + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+model_comp_int_congruence_condition <- anova(int_model_congruence_condition, comp_model_congruence_condition)
+model_comp_int_congruence_condition
+```
+
+```{r, exploration of the interaction between congruence and condition}
+congruence_condition_int <- int_model_congruence_condition %>% 
+  emmeans(specs = pairwise ~ Condition | Congruence,
+          type = "response",
+          adjust = "bonferroni") %>%
+  pluck("contrasts") %>%
+  summary()
+congruence_condition_int
+```
+
+
+
+```{r, interaction between condition and LG Accuracy}
+int_model_condition_LGAccuracy <- glmer(AJT_Accuracy ~ Condition * LG_Accuracy + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+comp_model_condition_LGAccuracy <- glmer(AJT_Accuracy ~ Condition + LG_Accuracy + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+model_comp_condition_LGAccuracy <- anova(int_model_condition_LGAccuracy, comp_model_condition_LGAccuracy)
+```
+
+```{r, exploration of the interaction between condition and LG Accuracy}
+condition_LGAccuracy_int <- int_model_condition_LGAccuracy %>% 
+  emmeans(specs = pairwise ~ LG_Accuracy | Condition,
+          type = "response",
+          adjust = "bonferroni") %>%
+  pluck("contrasts") %>%
+  summary()
+condition_LGAccuracy_int
+```
+
+
+```{r}
+int_model_continuous <- glmer(AJT_Accuracy ~ Condition * LG_Accuracy_Continuous + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+Anova(int_model_continuous)
+comp_model_continuous <- glmer(AJT_Accuracy ~ Condition + LG_Accuracy_Continuous + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+anova(int_model_continuous, comp_model_continuous)
+```
+
+```{r, interaction between age and condition}
+int_model_age_condition <- glmer(AJT_Accuracy ~ AgeGroup * Condition + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+comp_model_age_condition <- glmer(AJT_Accuracy ~ AgeGroup + Condition + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+model_comp_age_condition <- anova(int_model_age_condition, comp_model_age_condition)
+model_comp_age_condition
+```
+
+```{r, exploration of interaction between age and condition}
+age_condition_int <- int_model_age_condition %>% 
+  emmeans(specs = pairwise ~ Condition | AgeGroup,
+          type = "response",
+          adjust = "bonferroni") %>%
+  pluck("contrasts") %>%
+  summary()
+age_condition_int
+```
+
+
+```{r, interaction between age and congruence}
+int_model_age_congruence <- glmer(AJT_Accuracy ~ AgeGroup * Congruence + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+comp_model_age_congruence <- glmer(AJT_Accuracy ~ AgeGroup + Congruence + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+model_comp_age_congruence <- anova(int_model_age_congruence, comp_model_age_congruence)
+model_comp_age_congruence
+```
+
+```{r, exploration of the interaction between age and congruence}
+age_congruence_int <- int_model_age_congruence %>% 
+  emmeans(specs = pairwise ~ Congruence | AgeGroup,
+          type = "response",
+          adjust = "bonferroni") %>%
+  pluck("contrasts") %>%
+  summary()
+age_congruence_int
+```
+
+
+```{r, interaction between age and LG Task accuracy}
+int_model_age_LG <- glmer(AJT_Accuracy ~ AgeGroup * LG_Accuracy + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+comp_model_age_LG <- glmer(AJT_Accuracy ~ AgeGroup + LG_Accuracy + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+model_comp_age_LG <- anova(int_model_age_LG, comp_model_age_LG)
+model_comp_age_LG
+```
+
+```{r, interaction between age and Autobiographical Memory Task accuracy}
+int_model_age_AMT <- glmer(AJT_Accuracy ~ AgeGroup * AMT_Accuracy + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+comp_model_age_AMT <- glmer(AJT_Accuracy ~ AgeGroup + AMT_Accuracy + (1|PID) + (1|Item), data = df_clean, family = 'binomial', control = glmerControl(optimizer = "bobyqa"))
+model_comp_age_AMT <- anova(int_model_age_AMT, comp_model_age_AMT)
+model_comp_age_AMT
+```
+
+```{r, Age Judgment Task descriptives}
+AJT_summary <- df_clean %>%
+  group_by(PID) %>%
+  summarise(mean_AJT = mean(AJT_Accuracy, na.rm = TRUE))
+
+AJT_mean <- mean(AJT_summary$mean_AJT)
+AJT_sd <- sd(AJT_summary$mean_AJT)
+
+AJT_summary_condition <- df_clean %>%
+  group_by(PID, AgeGroup, Condition) %>%
+  summarise(mean_AJT = mean(AJT_Accuracy, na.rm = TRUE), .groups = "drop")
+
+AJT_summary_stats <- AJT_summary_condition %>%
+  group_by(AgeGroup, Condition) %>%
+  summarise(
+    m_AJT = mean(mean_AJT),  # different name
+    sd_AJT = sd(mean_AJT),
+    .groups = "drop"
+  )
+
+age3_age_mean <- AJT_summary_stats %>%
+  filter(AgeGroup == 3, Condition == "Age") %>%
+  pull(m_AJT)
+
+age3_age_sd <- AJT_summary_stats %>%
+  filter(AgeGroup == 3, Condition == "Age") %>%
+  pull(sd_AJT)
+
+age3_noage_mean <- AJT_summary_stats %>%
+  filter(AgeGroup == 3, Condition == "No Age") %>%
+  pull(m_AJT)
+
+age3_noage_sd <- AJT_summary_stats %>%
+  filter(AgeGroup == 3, Condition == "No Age") %>%
+  pull(sd_AJT)
+
+age4_age_mean <- AJT_summary_stats %>%
+  filter(AgeGroup == 4, Condition == "Age") %>%
+  pull(m_AJT)
+
+age4_age_sd <- AJT_summary_stats %>%
+  filter(AgeGroup == 4, Condition == "Age") %>%
+  pull(sd_AJT)
+
+age4_noage_mean <- AJT_summary_stats %>%
+  filter(AgeGroup == 4, Condition == "No Age") %>%
+  pull(m_AJT)
+
+age4_noage_sd <- AJT_summary_stats %>%
+  filter(AgeGroup == 4, Condition == "No Age") %>%
+  pull(sd_AJT)
+
+age5_age_mean <- AJT_summary_stats %>%
+  filter(AgeGroup == 5, Condition == "Age") %>%
+  pull(m_AJT)
+
+age5_age_sd <- AJT_summary_stats %>%
+  filter(AgeGroup == 5, Condition == "Age") %>%
+  pull(sd_AJT)
+
+age5_noage_mean <- AJT_summary_stats %>%
+  filter(AgeGroup == 5, Condition == "No Age") %>%
+  pull(m_AJT)
+
+age5_noage_sd <- AJT_summary_stats %>%
+  filter(AgeGroup == 5, Condition == "No Age") %>%
+  pull(sd_AJT)
+
+
+age3_age_mean
+age3_age_sd
+age3_noage_mean
+age3_noage_sd
+age4_age_mean
+age4_age_sd
+age4_noage_mean
+age4_noage_sd
+age5_age_mean
+age5_age_sd
+age5_noage_mean
+age5_noage_sd
+```
+
+```{r, Age Judgment Task t-tests to chance}
+overall_AJT_ttest <- t.test(AJT_summary$mean_AJT, mu = 0.5)
+
+age3_age_condition <- AJT_summary_condition %>%
+  filter(AgeGroup == 3, Condition == "Age")
+
+age3_age_condition_t_test_result <- t.test(age3_age_condition$mean_AJT, mu = 0.5)
+
+age3_noage_condition <- AJT_summary_condition %>%
+  filter(AgeGroup == 3, Condition == "No Age")
+
+age3_noage_condition_t_test_result <- t.test(age3_noage_condition$mean_AJT, mu = 0.5)
+
+age4_age_condition <- AJT_summary_condition %>%
+  filter(AgeGroup == 4, Condition == "Age")
+
+age4_age_condition_t_test_result <- t.test(age4_age_condition$mean_AJT, mu = 0.5)
+
+age4_noage_condition <- AJT_summary_condition %>%
+  filter(AgeGroup == 4, Condition == "No Age")
+
+age4_noage_condition_t_test_result <- t.test(age4_noage_condition$mean_AJT, mu = 0.5)
+
+age5_age_condition <- AJT_summary_condition %>%
+  filter(AgeGroup == 5, Condition == "Age")
+
+age5_age_condition_t_test_result <- t.test(age5_age_condition$mean_AJT, mu = 0.5)
+
+age5_noage_condition <- AJT_summary_condition %>%
+  filter(AgeGroup == 5, Condition == "No Age")
+
+age5_noage_condition_t_test_result <- t.test(age5_noage_condition$mean_AJT, mu = 0.5)
+
+age3_age_condition_t_test_result
+age3_noage_condition_t_test_result
+age4_age_condition_t_test_result
+age4_noage_condition_t_test_result
+age5_age_condition_t_test_result
+age5_noage_condition_t_test_result
+```
+
+```{r, Later Greater Task descriptives and}
+df_LG <- df %>%
+  filter(Task == 'LG')
+
+LG_summary <- df_LG %>%
+  group_by(PID) %>%
+  summarise(mean_LG = mean(LG_Accuracy, na.rm = TRUE))
+
+LG_mean <- mean(LG_summary$mean_LG)
+LG_sd <- sd(LG_summary$mean_LG)
+
+LG_summary_agegroup <- df_LG %>%
+  group_by(PID, AgeGroup) %>%
+  summarise(mean_LG = mean(LG_Accuracy, na.rm = TRUE))
+
+age3_LG <- LG_summary_agegroup %>%
+  filter(AgeGroup == "3")
+
+age4_LG <- LG_summary_agegroup %>%
+  filter(AgeGroup == "4")
+
+age5_LG <- LG_summary_agegroup %>%
+  filter(AgeGroup == "5")
+
+LG_mean_3 <- mean(age3_LG$mean_LG)
+LG_sd_3 <- sd(age3_LG$mean_LG)
+LG_mean_4 <- mean(age4_LG$mean_LG)
+LG_sd_4 <- sd(age4_LG$mean_LG)
+LG_mean_5 <- mean(age5_LG$mean_LG)
+LG_sd_5 <- sd(age5_LG$mean_LG)
+
+LG_ratios <- df_LG %>%
+  group_by(Ratio) %>%
+  summarise(mean_LG = mean(LG_Accuracy, na.rm = TRUE))
+
+LG_3vs5 <- LG_ratios %>%
+  filter(Ratio == "3 vs 5")
+
+LG_3vs7 <- LG_ratios %>%
+  filter(Ratio == "3 vs 7")
+
+LG_3vs9 <- LG_ratios %>%
+  filter(Ratio == "3 vs 9")
+
+LG_5vs7 <- LG_ratios %>%
+  filter(Ratio == "5 vs 7")
+
+LG_5vs9 <- LG_ratios %>%
+  filter(Ratio == "5 vs 9")
+
+LG_7vs9 <- LG_ratios %>%
+  filter(Ratio == "7 vs 9")
+
+LG_participant_means <- df_LG %>%
+  group_by(PID, AgeGroup, Ratio) %>%
+  summarise(mean_LG = mean(LG_Accuracy, na.rm = TRUE), .groups = "drop")
+
+LG_summary_by_age_ratio <- LG_participant_means %>%
+  group_by(AgeGroup, Ratio) %>%
+  summarise(
+    m_LG = mean(mean_LG),
+    se_LG = sd(mean_LG) / sqrt(n()),
+    .groups = "drop"
+  )
+
+
+LGplot <- ggplot(LG_summary_by_age_ratio, aes(x = AgeGroup, y = m_LG, fill = Ratio)) +
+  geom_col(position = position_dodge(0.9), width = 0.8) +
+  geom_errorbar(aes(ymin = m_LG - se_LG, ymax = m_LG + se_LG),
+                position = position_dodge(0.9), width = 0.2) +
+  geom_hline(yintercept = 0.5, linetype = 'dashed', color = 'black') +
+  labs(
+    x = "Age Group (Years)",
+    y = "Mean Accuracy",
+    fill = "Trial"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(size = 14),
+    legend.position = "right"
+  ) +
+  scale_fill_manual(values = c(
+    "3 vs 5" = "#D0DCE5",  # very light slate blue
+"3 vs 7" = "#A6BDD7",  # soft blue-gray
+"3 vs 9" = "#7FA6C3",  # muted medium blue
+"5 vs 7" = "#548ABF",  # slate blue
+"5 vs 9" = "#2A6DAF",  # deeper blue
+"7 vs 9" = "#0F4C81"   # dark navy blue
+  )) +
+  scale_y_continuous(expand = c(0, 0)) +
+   theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title.x = element_text(size = 17, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 17),
+    axis.text.x  = element_text(size = 15),
+    axis.text.y  = element_text(size = 15),
+    legend.title = element_text(size = 15),
+    legend.text  = element_text(size = 13)
+  )
+
+ggsave("LGplot.png", plot = LGplot, width = 8, height = 6, dpi = 300)
+
+LGplot
+```
+
+
+```{r, Later Greater t tests to chance}
+overall_LG_ttest <- t.test(LG_summary$mean_LG, mu = 0.5)
+
+age3_LG_ttest <- t.test(age3_LG$mean_LG, mu = 0.5)
+age4_LG_ttest <- t.test(age4_LG$mean_LG, mu = 0.5)
+age5_LG_ttest <- t.test(age5_LG$mean_LG, mu = 0.5)
+
+age3_LG_ttest
+age4_LG_ttest
+age5_LG_ttest
+```
+
+```{r, Autobiographical Memory Task Performance}
+AMT_summary <- df_clean %>%
+  group_by(PID) %>%
+  summarise(mean_AMT = mean(AMT_Accuracy, na.rm = TRUE))
+
+AMT_mean <- mean(AMT_summary$mean_AMT)
+
+AMT_mean
+
+AMT_summary_agegroup <- df_clean %>%
+  group_by(PID, AgeGroup) %>%
+  summarise(mean_AMT = mean(AMT_Accuracy, na.rm = TRUE))
+
+age3_AMT <- AMT_summary_agegroup %>%
+  filter(AgeGroup == "3")
+
+age4_AMT <- AMT_summary_agegroup %>%
+  filter(AgeGroup == "4")
+
+age5_AMT <- AMT_summary_agegroup %>%
+  filter(AgeGroup == "5")
+
+AMT_mean_3 <- mean(age3_AMT$mean_AMT)
+AMT_mean_4 <- mean(age4_AMT$mean_AMT)
+AMT_mean_5 <- mean(age5_AMT$mean_AMT)
+AMT_mean_3
+AMT_mean_4
+AMT_mean_5
+
+```
+
+
+
+The primary aim of this study was to better understand children's development of the concept of age and which factors contribute to this development. To do so, we analyzed children's performance in the Age Judgment Task and examined its relation to several elements in the task structure and children's performance on the two other tasks in the study, the Later-Greater Task and the Autobiographical Memory Task. Before conducting these primary analyses, we conducted exploratory analyses to describe children's performances on each of the individual tasks in the study. The primary analyses were based on a pre-registered plan available through OSF, which we supplemented with several exploratory and post-hoc analyses. Model comparisons were performed using likelihood ratio tests and the best-fitting models were selected on the basis of a significant chi-square statistic and reduced AIC value. All post hoc pairwise comparisons were adjusted for multiple comparisons using a Bonferroni correction.
+
+*Age Judgment Task*
+
+Children overall performed above chance (0.5) on the Age Judgment Task, *M* = `r round(AJT_mean, 2)`, *SD* = `r round(AJT_sd, 2)`, `r print_ttest(overall_AJT_ttest)`. To understand when in development children are able to make accurate age judgments and how this is influenced by access to numerical age cues, we next performed post hoc one-sample t-tests to compare the performance of children in each age group to chance in each condition and to compare performance across the numerical age conditions (see Fig. 1). We found that 3-year-old children did not differ from chance both when numerical ages were provided, *M* = `r round(age3_age_mean, 2)`, *SD* = `r round(age3_age_sd, 2)`, `r print_ttest(age3_age_condition_t_test_result)`, and when numerical ages were not provided, *M* = `r round(age3_noage_mean, 2)`, *SD* = `r round(age3_noage_sd, 2)`, `r print_ttest(age3_noage_condition_t_test_result)`. 3-year-olds also did not differ between the numerical age conditions, `r print_ttest(age3_condition_t_test)`. On the contrary, 4-year-olds differed from chance both when numerical ages were provided, *M* = `r round(age4_age_mean, 2)`, *SD* = `r round(age4_age_sd, 2)`, `r print_ttest(age4_age_condition_t_test_result)`, and when ages were not provided, *M* = `r round(age4_noage_mean, 2)`, *SD* = `r round(age4_noage_sd, 2)`, `r print_ttest(age4_noage_condition_t_test_result)`. 4-year-olds performed better when they had access to numerical age cues than when they did not, `r print_ttest(age4_condition_t_test)`. 5-year-olds performed significantly above chance both when ages were provided, *M* = `r round(age5_age_mean, 2)`, *SD* = `r round(age5_age_sd, 2)`, `r print_ttest(age5_age_condition_t_test_result)`, and when they were not, *M* = `r round(age5_noage_mean, 2)`, *SD* = `r round(age5_noage_sd, 2)`, `r print_ttest(age5_noage_condition_t_test_result)`. 5-year-olds also performed better when given numerical ages, `r print_ttest(age5_condition_t_test)`. These data suggest that around age 4, children are able to incorporate numerical age cues to make more accurate age judgments. 
+
+*Later-Greater Task*
+
+Children overall performed above chance (0.5) on the Later-Greater Task, *M* = `r round(LG_mean, 2)`, *SD* = `r round(LG_sd, 2)`, `r print_ttest(overall_LG_ttest)`. To understand when in development children are able to make accurate relative magnitude judgments for single-digit numbers, we then performed post hoc one-sample t-tests to compare performance in each age group to chance. We found that 3-year-olds, *M* = `r round(LG_mean_3, 2)`, *SD* = `r round(LG_sd_3, 2)`, `r print_ttest(age3_LG_ttest)`, 4-year-olds, *M* = `r round(LG_mean_4, 2)`, *SD* = `r round(LG_sd_4, 2)`, `r print_ttest(age4_LG_ttest)`, and 5-year-olds, *M* = `r round(LG_mean_5, 2)`, *SD* = `r round(LG_sd_5, 2)`, `r print_ttest(age5_LG_ttest)`, all performed significantly above chance (see Fig. 3 for by-trial data).
+
+*Autobiographical Memory Task*
+
+Overall, `r round(AMT_mean * 100)`% of children succeeded on the Autobiographical Memory Task by responding correctly to both which event was a long time ago and which event was a short time ago. Only `r round(AMT_mean_3 * 100)`% of 3-year-olds and `r round(AMT_mean_4 * 100)`% of 4-year-olds succeeded on the task, whereas `r round(AMT_mean_5 * 100)`% of 5-year-olds succeeded, suggesting that there may be a notable improvement in children's ability to temporally order past memories between four and five years of age.
+
+*Primary Analyses*
+
+To test which factors influence children's understanding of age, we constructed several generalized linear mixed models predicting children's accuracy on the Age Judgment Task using the lme4 (Bates et al., 2015) R package. Our base model included only age (months, z-scored) as a fixed effect, with participant and item as random effects. This model revealed that children's performance in the Age Judgment Task improved with age, (`r print_coeff(glmer1, "Age_scaled")`). To assess the impact of size on children's age judgments, we added a term for congruence of the size difference between figures in the Age Judgment Task (congruent/incongruent/same size) to our model. Relative to the simpler model with only age as a fixed factor, this augmented model significantly improved fit to the data (`r print_model_comp(model_comp_congruence, "glmer2")`), suggesting that children are influenced by size when making age judgments (see Fig. 4). Post hoc pairwise comparisons using the emmeans (Lenth, 2024) R Package showed that children were more accurate in the congruent condition than in both the same size (`r print_emm_contrast(glmer2.congruence, "Congruent / Same")`) and incongruent conditions (`r print_emm_contrast(glmer2.congruence, "Congruent / Incongruent")`), and also performed better in the same size condition than in the incongruent condition (`r print_emm_contrast(glmer2.congruence, "Incongruent / Same")`). Next, to assess whether having access to the numerical ages of the figures in the Age Judgment Task influenced children's performance, we added a term for numerical age condition (age provided/age not provided) to our model. This augmented model significantly improved fit to the data (`r print_model_comp(model_comp_condition, "glmer3")`), suggesting that accessing numerical age influences children's age judgments (Fig. 2). Post hoc pairwise comparisons showed that children were more accurate when they had access to the numerical ages than when they did not (`r print_emm_contrast(glmer3.condition, "Age / No Age")`). Adding a term for accuracy on the Later-Greater Task on the trial with the same pair of numbers as the ages the figures on that trial of the Age Judgment Task were meant to represent did not significantly improve model fit (`r print_model_comp(model_comp_LG, "glmer4")`). This suggests that knowledge of which of the numbers is greater on a trial of the Age Judgment Task may not allow children to make more accurate age judgments, but there are multiple reasons to doubt this conclusion. First, knowledge of which number is greater would not have been of use for participants in the condition of the Age Judmgent Task in which numerical ages were not provided. A subsequent interaction model addresses this. Additionally, participants only completed one trial in the Later-Greater Task for each pair of numbers, rendering the reliability of their accuracy for that pair of numbers low. Because of these concerns, we constructed an exploratory model which added a term for accuracy on the Later-Greater Task as a total score rather than by trial. This model did significantly improve fit to the data (`r print_model_comp(model_comp_LGcontinuous, "glmer4_LGContinuous")`), suggesting that, generally, more advanced numerical knowledge may lead children to a more accurate concept of age and ability to make relative age judgments. Finally, we found that adding a term for accuracy on the Autobiographical Memory Task did not significantly improve model fit (`r print_model_comp(model_comp_AMT, "glmer5")`), suggesting that children's development of the concept of age may not be influenced by their ability to temporally order past memories.
+
+We next further analyzed the influence of numerical cues on children's age judgments. First, to understand whether children's size bias is mediated by access to numerical age, we examined how size congruence and numerical age condition interacted (Fig. 4). We found that a Congruence * Condition interaction model improved model fit (`r print_model_comp(model_comp_int_congruence_condition, "int_model_congruence_condition")`) relative to a simpler model [Accuracy ~ Congruence + Condition + (1|PID) + (1|Item)]. Post hoc pairwise comparisons showed that while there was no significant difference in accuracy between the two conditions when the size difference between the figures was congruent (`r print_emm_contrast(congruence_condition_int, "Age / No Age", filter_level = "Congruent", filter_column = "Congruence")`), children's age judgments were more accurate when they had access to numerical ages than when they did not when the size difference was incongruent (`r print_emm_contrast(congruence_condition_int, "Age / No Age", filter_level = "Incongruent", filter_column = "Congruence")`) and when the two figures were the same size (`r print_emm_contrast(congruence_condition_int, "Age / No Age", filter_level = "Same", filter_column = "Congruence")`), suggesting that although children can be misled by size in their age judgments, this effect is reduced when they are able to make use of numerical age cues. Next, we explored how numerical age condition and accuracy on the Later-Greater Task interacted to test whether number knowledge may be more predictive of performance on the Age Judgment Task when children have access to the numerical ages in making age judgments (Fig. 5). We found that a Condition * Later-Greater Accuracy interaction model improved model fit (`r print_model_comp(model_comp_condition_LGAccuracy, "int_model_condition_LGAccuracy")`) relative to a simpler model [Accuracy ~ Condition + Later-Greater Accuracy + (1|PID) + (1|Item)]. Post hoc pairwise comparisons showed that when children have access to the numerical ages of the children in the Age Judgment Task, whether they demonstrated knowledge of which of those two numbers is greater in the Later-Greater Task significantly predicts their accuracy in judging relative age (`r print_emm_contrast(condition_LGAccuracy_int, "LG_Accuracy0 / LG_Accuracy1", filter_level = "Age", filter_column = "Condition")`). On the contrary, when children did not have access to the numerical ages in the Age Judgment Task, their accuracy was not predicted by their knowledge of which of the numbers is greater (`r print_emm_contrast(condition_LGAccuracy_int, "LG_Accuracy0 / LG_Accuracy1", filter_level = "No Age", filter_column = "Condition")`). This suggests that children are able to make more accurate age judgments when they have access to and understand numerical age cues.
+
+To better understand the developmental trajectory of children's acquisition of the concept of age, we examined how age interacted with several factors that may influence children's age judgments. We first constructed a model to ask how children in three age groups (3-, 4-, and 5-year-olds) differed in their ability to make use of numerical age cues in the Age Judgment Task. We found that an Age * Condition interaction model improved model fit (`r print_model_comp(model_comp_age_condition, "int_model_age_condition")`) relative to a simpler model [Accuracy ~ Age + Condition + (1|PID) + (1|Item)]. Post hoc pairwise comparisons showed that 3-year-olds' accuracy did not differ between conditions (`r print_emm_contrast(age_condition_int, "Age / No Age", filter_level = "3", filter_column = "AgeGroup")`), whereas performance was better in the numerical age condition for both 4-year-olds (`r print_emm_contrast(age_condition_int, "Age / No Age", filter_level = "4", filter_column = "AgeGroup")`) and 5-year-olds (`r print_emm_contrast(age_condition_int, "Age / No Age", filter_level = "5", filter_column = "AgeGroup")`), suggesting that access to numerical age cues becomes useful for children in making age judgments around four years of age.
+
+We next constructed a model to understand how children in each age group perform on different levels of size congruence in the Age Judgment Task. We found that an Age * Congruence interaction model improved model fit (`r print_model_comp(model_comp_age_congruence, "int_model_age_congruence")`) relative to a simpler model [Accuracy ~ Age + Congruence + (1|PID) + (1|Item)]. Post hoc pairwise comparisons showed that 3-year-olds performed better on congruent than incongruent trials (`r print_emm_contrast(age_congruence_int, "Congruent / Incongruent", filter_level = "3", filter_column = "AgeGroup")`), but did not perform significantly differently on same size than incongruent trials (`r print_emm_contrast(age_congruence_int, "Incongruent / Same", filter_level = "3", filter_column = "AgeGroup")`) or on congruent and same size trials (`r print_emm_contrast(age_congruence_int, "Congruent / Same", filter_level = "3", filter_column = "AgeGroup")`). 4-year-olds performed better on congruent than incongruent trials (`r print_emm_contrast(age_congruence_int, "Congruent / Incongruent", filter_level = "4", filter_column = "AgeGroup")`), congruent than same size trials (`r print_emm_contrast(age_congruence_int, "Congruent / Same", filter_level = "4", filter_column = "AgeGroup")`), and same size than incongruent trials (`r print_emm_contrast(age_congruence_int, "Incongruent / Same", filter_level = "4", filter_column = "AgeGroup")`). 5-year-olds also performed better on congruent than incongruent trials (`r print_emm_contrast(age_congruence_int, "Congruent / Incongruent", filter_level = "5", filter_column = "AgeGroup")`), congruent than same size trials (`r print_emm_contrast(age_congruence_int, "Congruent / Same", filter_level = "5", filter_column = "AgeGroup")`), and same size than incongruent trials (`r print_emm_contrast(age_congruence_int, "Incongruent / Same", filter_level = "5", filter_column = "AgeGroup")`). This pattern of results suggests that although children develop the ability to make use of numerical age cues, size remains an influential factor in making age judgments when considering children across the sample, half of which did not access numerical age cues.
+
+Finally, to complete our investigation of how children's age judgments are influenced by a host of factors across development, we constructed interaction models between age and performance on each of the other two tasks in the study. We found that an Age * Later-Greater Task Accuracy interaction model did not improve model fit (`r print_model_comp(model_comp_age_LG, "int_model_age_LG")`) relative to a simpler model [Accuracy ~ Age + Later-Greater Task Accuracy + (1|PID) + (1|Item)]. We also found that an Age * Autobiographical Memory Task Accuracy interaction model did not improve model fit (`r print_model_comp(model_comp_age_AMT, "int_model_age_AMT")`) relative to a simpler model [Accuracy ~ Age + Autobiographical Memory Task Accuracy + (1|PID) + (1|Item)]. These results suggest that the relation (or lack thereof) of the cognitive abilities of judging numerical magnitudes and ordering past memories to making relative age judgments remain constant from three to six years old.
+
+```{r, if wanted to show comparisons to chance in plot1}
+#chance_markers_df_plot1 <- tibble::tibble(
+ # AgeGroup = c("3", "3", "4", "4", "5", "5"),
+  #Condition = c("Age", "No Age", "Age", "No Age", "Age", "No Age"),
+  #p_value = c(
+   # age3_age_condition_t_test_result$p.value,
+    #age3_noage_condition_t_test_result$p.value,
+    #age4_age_condition_t_test_result$p.value,
+    #age4_noage_condition_t_test_result$p.value,
+    #age5_age_condition_t_test_result$p.value,
+    #age5_noage_condition_t_test_result$p.value
+  #)
+#) %>%
+ # mutate(
+  #  annotation = case_when(
+   #   p_value < 0.001 ~ "***",
+    #  p_value < 0.01 ~ "**",
+     # p_value < 0.05 ~ "*",
+      #TRUE ~ "ns"
+    #),
+ #   xpos = case_when(
+  #    AgeGroup == "3" & Condition == "Age" ~ 0.8,
+   #   AgeGroup == "3" & Condition == "No Age" ~ 1.2,
+    #  AgeGroup == "4" & Condition == "Age" ~ 1.8,
+     # AgeGroup == "4" & Condition == "No Age" ~ 2.2,
+      #AgeGroup == "5" & Condition == "Age" ~ 2.8,
+      #AgeGroup == "5" & Condition == "No Age" ~ 3.2
+    #),
+    #ypos = case_when(
+     # AgeGroup == "3" & Condition == "Age" ~ 0.64,
+      #AgeGroup == "3" & Condition == "No Age" ~ 0.58,
+      #AgeGroup == "4" & Condition == "Age" ~ 0.81,
+      #AgeGroup == "4" & Condition == "No Age" ~ 0.61,
+      #AgeGroup == "5" & Condition == "Age" ~ 0.96,
+      #AgeGroup == "5" & Condition == "No Age" ~ 0.74
+    #)
+  #)
+```
+
+
+```{r, plot of Age Judgment Task accuracy by condition and age group}
+
+contrast_df_agecondition <- as.data.frame(age_condition_int)
+
+contrast_df_agecondition <- contrast_df_agecondition %>%
+  mutate(
+    annotation = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*",
+      TRUE ~ "ns"
+    ),
+    y_position = case_when(
+      AgeGroup == "3" ~ 0.68,
+      AgeGroup == "4" ~ 0.86,
+      AgeGroup == "5" ~ 1.00
+    ),
+    xmin = case_when(
+      AgeGroup == "3" ~ 0.8,
+      AgeGroup == "4" ~ 1.8,
+      AgeGroup == "5" ~ 2.8
+    ),
+    xmax = case_when(
+      AgeGroup == "3" ~ 1.2,
+      AgeGroup == "4" ~ 2.2,
+      AgeGroup == "5" ~ 3.2
+    ),
+    group = row_number()
+  )
+
+# Plot
+plot1 <- ggplot(AJT_summary_condition, aes(x = AgeGroup, y = mean_AJT, fill = Condition)) +
+  stat_summary(
+    fun = mean,
+    geom = "bar",
+    position = position_dodge(),
+    color = "black"
+  ) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "errorbar",
+    position = position_dodge(0.9),
+    width = 0.2
+  ) +
+  geom_signif(
+    data = contrast_df_agecondition,
+    aes(xmin = xmin, xmax = xmax, annotations = annotation,
+        y_position = y_position, group = group),
+    manual = TRUE,
+    inherit.aes = FALSE,
+    tip_length = 0.01,
+    textsize = 4
+  ) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "black") +
+  labs(
+    x = "Age Group (Years)",
+    y = "Mean AJT Accuracy",
+    fill = "Numerical Age Condition"
+  ) +
+  scale_fill_manual(
+    values = c("Age" = "lightblue", "No Age" = "white"),
+    labels = c("Age" = "Age Provided", "No Age" = "No Age Provided")
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title.x = element_text(size = 17, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 17),
+    axis.text.x  = element_text(size = 15),
+    axis.text.y  = element_text(size = 15),
+    legend.title = element_text(size = 15),
+    legend.text  = element_text(size = 13)
+  ) +
+  scale_y_continuous(limits = c(0, 1), expand = expansion(mult = c(0, 0.05)))
+
+
+ggsave("plot1.png", plot = plot1, width = 8, height = 5, dpi = 300)
+
+plot1
+```
+
+
+```{r, plot of AJT performance by congruence and condition}
+contrast_df_congruencecondition <- as.data.frame(congruence_condition_int)
+
+contrast_df_congruencecondition <- contrast_df_congruencecondition %>%
+  mutate(
+    y_position = case_when(
+      Congruence == "Congruent"   ~ 0.92,
+      Congruence == "Incongruent" ~ 0.92,
+      Congruence == "Same"   ~ 0.92,
+    ),
+    xmin = case_when(
+      Congruence == "Congruent"   ~ 0.8,
+      Congruence == "Incongruent" ~ 1.8,
+      Congruence == "Same"   ~ 2.8,
+    ), 
+    xmax = case_when(
+      Congruence == "Congruent"   ~ 1.2,
+      Congruence == "Incongruent" ~ 2.2,
+      Congruence == "Same"   ~ 3.2,
+    ),
+    annotation = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*",
+      TRUE ~ "ns"
+  ),
+  group = row_number()
+)
+
+plot2 <- ggplot(df_clean, aes(x = Congruence, y = AJT_Accuracy)) +
+  stat_summary(aes(fill = Condition), fun = mean, geom = 'bar', position = position_dodge(), alpha = 0.7, color = "black") +
+  stat_summary(aes(fill = Condition), fun.data = function(x) {
+    data.frame(y = mean(x), ymin = mean(x) - sd(x)/sqrt(length(x)), ymax = mean(x) + sd(x)/sqrt(length(x)))
+  }, geom = 'errorbar', width = 0.2, position = position_dodge(0.9)) +
+  labs(
+    x = "Congruence of Size and Age Cues",
+    y = "Mean Accuracy",
+    fill = "Numerical Age Condition"
+  ) +
+  scale_fill_manual(
+    values = c("Age" = "lightblue", "No Age" = "white"),
+    labels = c("Age" = "Age Provided", "No Age" = "No Age Provided")
+  ) +
+  scale_x_discrete(labels = c("Same" = "Same Size")) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title.x = element_text(size = 17, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 17),
+    axis.text.x  = element_text(size = 15),
+    axis.text.y  = element_text(size = 15),
+    legend.title = element_text(size = 15),
+    legend.text  = element_text(size = 13)
+  ) +
+  geom_hline(yintercept = 0.5, linetype = 'dashed', color = 'black') +
+    geom_signif(data = contrast_df_congruencecondition,
+              aes(xmin = xmin, xmax = xmax, annotations = annotation, y_position = y_position, group = group), 
+              manual = TRUE,
+              tip_length = 0.01,
+              textsize = 4) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0,1))
+
+ggsave("plot2.png", plot = plot2, width = 8, height = 5, dpi = 300)
+
+plot2
+```
+
+```{r}
+contrast_df_congruencecondition <- as.data.frame(congruence_condition_int)
+
+contrast_df_congruencecondition <- contrast_df_congruencecondition %>%
+  mutate(
+    y_position = case_when(
+      Congruence == "Congruent"   ~ 0.92,
+      Congruence == "Incongruent" ~ 0.92,
+      Congruence == "Same"   ~ 0.92,
+    ),
+    xmin = case_when(
+      Congruence == "Congruent"   ~ 0.8,
+      Congruence == "Incongruent" ~ 1.8,
+      Congruence == "Same"   ~ 2.8,
+    ), 
+    xmax = case_when(
+      Congruence == "Congruent"   ~ 1.2,
+      Congruence == "Incongruent" ~ 2.2,
+      Congruence == "Same"   ~ 3.2,
+    ),
+    annotation = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*",
+      TRUE ~ "ns"
+  ),
+  group = row_number()
+)
+
+# 1. Compute participant-level means
+AJT_summary_congruence <- df_clean %>%
+  group_by(PID, Congruence, Condition) %>%
+  summarise(mean_AJT = mean(AJT_Accuracy, na.rm = TRUE), .groups = "drop")
+
+# 2. Compute group means and SEMs from participant means
+AJT_summary_congruence_group <- AJT_summary_congruence %>%
+  group_by(Congruence, Condition) %>%
+  summarise(
+    m_AJT = mean(mean_AJT),
+    se_AJT = sd(mean_AJT) / sqrt(n()),
+    .groups = "drop"
+  )
+
+# 3. Create the plot with SEM error bars
+plot2 <- ggplot(AJT_summary_congruence_group, aes(x = Congruence, y = m_AJT, fill = Condition)) +
+  geom_bar(stat = "identity", position = position_dodge(0.9), color = "black", alpha = 0.7) +
+  geom_errorbar(aes(ymin = m_AJT - se_AJT, ymax = m_AJT + se_AJT),
+                position = position_dodge(width = 1), width = 0.2) +
+  geom_hline(yintercept = 0.5, linetype = 'dashed', color = 'black') +
+  labs(
+    x = "Congruence of Size and Age Cues",
+    y = "Mean Accuracy",
+    fill = "Numerical Age Condition"
+  ) +
+  scale_fill_manual(
+    values = c("Age" = "lightblue", "No Age" = "white"),
+    labels = c("Age" = "Age Provided", "No Age" = "No Age Provided")
+  ) +
+  scale_x_discrete(labels = c("Same" = "Same Size")) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title.x = element_text(size = 17, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 17),
+    axis.text.x  = element_text(size = 15),
+    axis.text.y  = element_text(size = 15),
+    legend.title = element_text(size = 15),
+    legend.text  = element_text(size = 13)
+  ) +
+  geom_signif(data = contrast_df_congruencecondition,
+              aes(xmin = xmin, xmax = xmax, annotations = annotation, 
+                  y_position = y_position, group = group),
+              manual = TRUE,
+              inherit.aes = FALSE,
+              tip_length = 0.01,
+              textsize = 4) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05)), limits = c(0, 1))
+
+# 4. Save the plot
+ggsave("plot2.png", plot = plot2, width = 8, height = 5, dpi = 300)
+
+plot2
+```
+
+
+```{r, t tests and plot for Age Judgment Task performance in No Age condition and Same size trials}
+
+df_noagesamesize <- df_clean %>%
+  filter(Condition == "No Age", Congruence == "Same")
+
+noagesamesize_participant_means <- df_noagesamesize %>%
+  group_by(PID, AgeGroup) %>%
+  summarise(mean_AJT = mean(AJT_Accuracy, na.rm = TRUE), .groups = "drop")
+
+noagesamesize_3yo <- t.test(noagesamesize_participant_means %>% filter(AgeGroup == "3") %>% pull(mean_AJT), mu = 0.5)
+noagesamesize_3yo
+
+noagesamesize_4yo <- t.test(noagesamesize_participant_means %>% filter(AgeGroup == "4") %>% pull(mean_AJT), mu = 0.5)
+noagesamesize_4yo
+
+noagesamesize_5yo <- t.test(noagesamesize_participant_means %>% filter(AgeGroup == "5") %>% pull(mean_AJT), mu = 0.5)
+noagesamesize_5yo
+
+summary_noagesamesize <- noagesamesize_participant_means %>%
+  group_by(AgeGroup) %>%
+  summarise(
+    MeanAccuracy = mean(mean_AJT),
+    SD = sd(mean_AJT),
+    SE = SD / sqrt(n()),
+    .groups = "drop"
+  )
+
+test_results_noagesamesize <- noagesamesize_participant_means %>%
+  group_by(AgeGroup) %>%
+  summarise(
+    p_value = t.test(mean_AJT, mu = 0.5)$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    annotation = case_when(
+      p_value < 0.001 ~ "***",
+      p_value < 0.01 ~ "**",
+      p_value < 0.05 ~ "*",
+      TRUE ~ "ns"
+    ),
+    y_position = case_when(
+      AgeGroup == "3" ~ 0.62,
+      AgeGroup == "4" ~ 0.7,
+      AgeGroup == "5" ~ 0.8
+    )
+  )
+
+noagesamesizeplot <- ggplot(summary_noagesamesize, aes(x = AgeGroup, y = MeanAccuracy)) +
+  geom_bar(stat = "identity", fill = "powderblue", color = "black", width = 0.6) +
+  geom_errorbar(aes(ymin = MeanAccuracy - SE, ymax = MeanAccuracy + SE), width = 0.2) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "black") +
+  geom_text(
+    data = test_results_noagesamesize,
+    aes(x = AgeGroup, y = y_position, label = annotation),
+    size = 5
+  ) +
+  labs(
+    x = "Age Group (Years)",
+    y = "Mean Accuracy"
+  ) +
+  theme_minimal(base_size = 14) +
+  scale_y_continuous(limits = c(0, 1), expand = expansion(mult = c(0, 0.05))) +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title.x = element_text(size = 17, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 17),
+    axis.text.x  = element_text(size = 15),
+    axis.text.y  = element_text(size = 15)
+  )
+
+ggsave("noagesamesizeplot.png", plot = noagesamesizeplot, width = 8, height = 5, dpi = 300)
+
+noagesamesizeplot
+```
+
+
+```{r, GLM table summary}
+model_list <- list(
+  "Age (months)" = glmer1,
+  "Age + Size Congruence" = glmer2,
+  "Age + Congruence + Numerical Age Condition" = glmer3,
+  "Age + Congruence + Condition + Later-Greater Task Accuracy (by trial)" = glmer4,
+  "Age + Congruence + Condition + Later-Greater Task Accuracy (sum score)" = glmer4_LGContinuous,
+  "Age + Congruence + Condition + LG Accuracy (by trial) + Autobiographical Memory Task Accuracy" = glmer5
+)
+
+# Fixed effects you want to pull out
+fixed_effects <- c(
+  "Age_scaled",
+  "CongruenceIncongruent",
+  "CongruenceSame",
+  "ConditionNo Age",
+  "Condition",
+  "LG_Accuracy",
+  "AMT_Accuracy"
+)
+
+# Function to tidy each model
+extract_info <- function(model, model_name) {
+  coefs <- broom.mixed::tidy(model) %>%
+    filter(term %in% fixed_effects) %>%
+    select(term, estimate)
+
+  coefs_wide <- pivot_wider(coefs, names_from = term, values_from = estimate)
+
+  tibble(
+    Model = model_name,
+    AIC = AIC(model),
+    LogLik = as.numeric(logLik(model))  # Convert to plain numeric
+  ) %>%
+    bind_cols(coefs_wide)
+}
+
+# Apply to all models
+results_table <- bind_rows(
+  lapply(names(model_list), function(name) {
+    extract_info(model_list[[name]], name)
+  })
+)
+
+# View nicely
+print(results_table)
+```
+
+```{r}
+results_table_display <- results_table %>%
+  mutate(across(where(is.numeric), ~ round(., 2))) %>%
+  mutate(across(everything(), ~ ifelse(is.na(.), "", .)))
+
+# Create flextable
+ft <- flextable(results_table_display) %>%
+  autofit() %>%
+  set_table_properties(layout = "autofit") %>%
+  theme_booktabs()
+
+ft
+```
+
+
+```{r GLM table summary formatting, fig.width = 5}
+results_table %>%
+  # FIRST, convert relevant columns to character so we can safely replace NA with ""
+  mutate(across(
+    starts_with("Age") | starts_with("Incongruent") | starts_with("Same Size") |
+    starts_with("Condition") | starts_with("Later-Greater") | starts_with("Autobiographical"),
+    as.character
+  )) %>%
+  
+  # THEN replace NA values with blank cells
+  mutate(across(
+    starts_with("Age") | starts_with("Incongruent") | starts_with("Same Size") |
+    starts_with("Condition") | starts_with("Later-Greater") | starts_with("Autobiographical"),
+    ~ replace_na(., "")
+  )) %>%
+
+  # THEN apply rounding without significance stars
+  mutate(across(
+    c(Age_scaled, CongruenceIncongruent, CongruenceSame,
+      `ConditionNo Age`, LG_Accuracy, AMT_Accuracy),
+    ~ ifelse(. != "", round(as.numeric(.), 2), "")
+  )) %>%
+
+  # Now make the table
+  gt() %>%
+  
+  # First, group the original columns
+  tab_spanner(
+    label = "Model",
+    columns = Model,
+    id = "model_spanner"
+  ) %>%
+  tab_spanner(
+    label = html("Coefficient statistics (&#946;)"),
+    columns = c(
+      Age_scaled, CongruenceIncongruent, CongruenceSame,
+      `ConditionNo Age`, LG_Accuracy, AMT_Accuracy
+    ),
+    id = "coef_spanner"
+  ) %>%
+  tab_spanner(
+    label = "Summary statistics",
+    columns = c(AIC, LogLik),
+    id = "summary_spanner"
+  ) %>%
+  
+  # THEN rename the columns for display
+  cols_label(
+    Model = "",
+    Age_scaled = "Age (months)",
+    CongruenceIncongruent = "Incongruent",
+    CongruenceSame = "Same Size",
+    `ConditionNo Age` = "Condition: No Numerical Age",
+    LG_Accuracy = "Later-Greater Task Accuracy",
+    AMT_Accuracy = "Autobiographical Memory Task Accuracy",
+    AIC = "AIC",
+    LogLik = "Log-Likelihood"
+  ) %>%
+  
+  # Remove the title
+  tab_header(
+    title = NULL
+  ) %>%
+  
+  # Remove footnote numbering by just applying the footnotes without specifying locations
+  tab_footnote(
+    footnote = "Note: Reference levels are as follows: Size Difference = Congruent and Condition = Numerical Age Provided."
+  ) %>%
+  tab_footnote(
+    footnote = "Significance codes: `***` p < 0.001, `**` p < 0.01, `*` p < 0.05."
+  ) %>%
+  
+  tab_options(
+    table.font.size = "small",
+    data_row.padding = px(2),
+    heading.align = "left"
+  )
+```
+```{r}
+tidy(glmer1)
+```
+
+
+```{r}
+summary_df <- df_clean %>%
+  group_by(Ratio, Condition) %>%
+  summarise(
+    MeanAccuracy = mean(AJT_Accuracy, na.rm = TRUE),
+    SE = sd(AJT_Accuracy, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+ggplot(summary_df, aes(x = factor(Ratio), y = MeanAccuracy, fill = Condition)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9), color = "black", alpha = 0.7) +
+  geom_errorbar(
+    aes(ymin = MeanAccuracy - SE, ymax = MeanAccuracy + SE),
+    position = position_dodge(width = 0.9),
+    width = 0.2
+  ) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "black") +
+  scale_fill_manual(
+    values = c("Age" = "lightblue", "No Age" = "white"),
+    labels = c("Age Provided", "No Age Provided")
+  ) +
+  labs(
+    x = "Age Ratio (Younger/Older)",
+    y = "Mean AJT Accuracy",
+    fill = "Condition"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.title.x = element_text(margin = margin(t = 10))
+  ) +
+  scale_y_continuous(limits = c(0, 1), expand = expansion(mult = c(0, 0.05)))
+```
+
+
